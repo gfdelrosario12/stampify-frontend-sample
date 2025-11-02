@@ -1,0 +1,106 @@
+{
+  "users": [
+    {
+      "id": "user-1",
+      "email": "member@stampify.com",
+      "password": "password123",
+      "name": "Alex Johnson",
+      "role": "member",
+      "organization": "org-1",
+      "avatar": "👤",
+      "memberId": "M-2025-001",
+      "joinDate": "2025-01-15"
+    },
+    {
+      "id": "user-2",
+      "email": "scanner@stampify.com",
+      "password": "password123",
+      "name": "Jordan Chen",
+      "role": "scanner",
+      "organization": "org-1",
+      "avatar": "👤"
+    },
+    {
+      "id": "user-3",
+      "email": "admin@stampify.com",
+      "password": "password123",
+      "name": "Sam Admin",
+      "role": "admin",
+      "organization": "org-1",
+      "avatar": "👤"
+    }
+  ],
+  "organizations": [
+    {
+      "id": "org-1",
+      "name": "TechCon 2025",
+      "description": "Tech Conference and Exhibition",
+      "logo": "🎯"
+    }
+  ],
+  "events": [
+    {
+      "id": "e1",
+      "name": "Opening Keynote",
+      "date": "2025-10-15",
+      "location": "Main Hall",
+      "description": "Kick off the conference with our opening keynote address",
+      "time": "09:00 AM",
+      "speaker": "Jane Smith",
+      "capacity": 500
+    },
+    {
+      "id": "e2",
+      "name": "AI Workshop",
+      "date": "2025-10-16",
+      "location": "Room 204",
+      "description": "Hands-on workshop exploring latest AI technologies",
+      "time": "02:00 PM",
+      "speaker": "Dr. Mike Johnson",
+      "capacity": 50
+    },
+    {
+      "id": "e3",
+      "name": "Networking Mixer",
+      "date": "2025-10-17",
+      "location": "Garden Terrace",
+      "description": "Connect with industry professionals and peers",
+      "time": "06:00 PM",
+      "speaker": "Multiple Speakers",
+      "capacity": 200
+    },
+    {
+      "id": "e4",
+      "name": "Closing Ceremony",
+      "date": "2025-10-18",
+      "location": "Main Hall",
+      "description": "Wrap up the conference with awards and announcements",
+      "time": "04:00 PM",
+      "speaker": "Executive Team",
+      "capacity": 500
+    }
+  ],
+  "stamps": [
+    {
+      "id": "s1",
+      "userId": "user-1",
+      "eventId": "e1",
+      "timestamp": "2025-10-15T09:30:00",
+      "scannedBy": "user-2"
+    },
+    {
+      "id": "s2",
+      "userId": "user-1",
+      "eventId": "e2",
+      "timestamp": "2025-10-16T14:20:00",
+      "scannedBy": "user-2"
+    },
+    {
+      "id": "s3",
+      "userId": "user-1",
+      "eventId": "e3",
+      "timestamp": "2025-10-17T18:15:00",
+      "scannedBy": "user-2"
+    }
+  ]
+}
