@@ -1,161 +1,182 @@
-"use client"
+"use client";
 
-import { useRouter } from "next/navigation"
-import { useAuth } from "@/lib/auth-context"
-import { useState } from "react"
-import { Zap, X } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { useState, useEffect } from "react";
+import axios from "axios";
 
-export function LoginModal({
-  isOpen,
-  onClose,
-  isRegister,
-  onToggleMode
-}: {
-  isOpen: boolean
-  onClose: () => void
-  isRegister: boolean
-  onToggleMode: () => void
-}) {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [fullName, setFullName] = useState("")
-  const [error, setError] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const { login } = useAuth()
-  const router = useRouter()
+type Mode = "login" | "register";
 
-  if (!isOpen) return null
+interface Organization {
+  id: number;
+  name: string;
+}
+
+// Dynamic base URL from environment variable
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+
+export default function LoginModal() {
+  const [mode, setMode] = useState<Mode>("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [organizationId, setOrganizationId] = useState<number | "">("");
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loadingOrgs, setLoadingOrgs] = useState(true);
+
+  // Fetch organizations dynamically for registration
+  useEffect(() => {
+    async function fetchOrganizations() {
+      try {
+        const res = await axios.get<Organization[]>(`${API_BASE}/organizations`);
+        setOrganizations(res.data);
+      } catch (err) {
+        console.error("Failed to fetch organizations", err);
+      } finally {
+        setLoadingOrgs(false);
+      }
+    }
+
+    if (mode === "register") {
+      fetchOrganizations();
+    }
+  }, [mode]);
+
+  const toggleMode = () => {
+    setMode(mode === "login" ? "register" : "login");
+    setError(null);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError("")
-    setIsLoading(true)
+    e.preventDefault();
+    setError(null);
 
     try {
-      if (isRegister) {
-        router.push("/register")
-        return
+      if (mode === "login") {
+        // LOGIN
+        await axios.post(
+          `${API_BASE}/users/login`,
+          { email, password },
+          { withCredentials: true } // For HTTP-only cookie from backend
+        );
+        alert("Login successful!");
+      } else {
+        // REGISTER
+        if (!firstName || !lastName || !organizationId) {
+          setError("All fields are required for registration");
+          return;
+        }
+
+        await axios.post(
+          `${API_BASE}/users`,
+          {
+            email,
+            password,
+            firstName,
+            lastName,
+            organizationId,
+            role: "MEMBER", // Default role
+          },
+          { withCredentials: true }
+        );
+
+        alert("Registration successful! Please login.");
+        setMode("login");
       }
 
-      const success = await login(email, password)
-      if (!success) {
-        setError("Invalid credentials")
-        return
-      }
-
-      const lower = email.toLowerCase()
-
-      if (lower === "member@stampify.com") router.push("/member")
-      else if (lower === "scanner@stampify.com") router.push("/scanner")
-      else if (lower === "admin@stampify.com") router.push("/admin")
-      else router.push("/dashboard")
-
-    } catch (e) {
-      setError("Login failed")
-    } finally {
-      setIsLoading(false)
+      // Clear form fields
+      setEmail("");
+      setPassword("");
+      setFirstName("");
+      setLastName("");
+      setOrganizationId("");
+    } catch (err: any) {
+      console.error(err);
+      if (err.response?.data?.message) setError(err.response.data.message);
+      else if (err.response?.status === 401) setError("Invalid credentials");
+      else setError("Something went wrong. Please try again.");
     }
-  }
+  };
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-purple-500/30 rounded-2xl max-w-md w-full p-8 relative">
-        
-        <button 
-          onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-white"
-        >
-          <X className="w-6 h-6" />
-        </button>
+    <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+      <div className="bg-white rounded-xl p-6 w-96 shadow-lg">
+        <h2 className="text-2xl font-bold mb-4">{mode === "login" ? "Login" : "Register"}</h2>
 
-        <div className="flex items-center space-x-2 mb-6">
-          <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
-            <Zap className="w-6 h-6" />
-          </div>
-          <span className="text-xl font-bold">
-            STAMP<span className="text-pink-400">i</span>FY
-          </span>
-        </div>
-
-        <h2 className="text-2xl font-bold mb-2">
-          {isRegister ? "Create Account" : "Welcome Back"}
-        </h2>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          
-          {isRegister && (
-            <div className="space-y-2">
-              <label className="text-sm">Full Name</label>
-              <Input
-                placeholder="John Doe"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="bg-slate-800 border border-purple-500/30"
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          {mode === "register" && (
+            <>
+              <input
+                type="text"
+                placeholder="First Name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className="border p-2 rounded"
                 required
               />
-            </div>
+              <input
+                type="text"
+                placeholder="Last Name"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className="border p-2 rounded"
+                required
+              />
+
+              {loadingOrgs ? (
+                <p>Loading organizations...</p>
+              ) : (
+                <select
+                  value={organizationId}
+                  onChange={(e) => setOrganizationId(Number(e.target.value))}
+                  className="border p-2 rounded"
+                  required
+                >
+                  <option value="">Select Organization</option>
+                  {organizations.map((org) => (
+                    <option key={org.id} value={org.id}>
+                      {org.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </>
           )}
 
-          <div className="space-y-2">
-            <label className="text-sm">Email</label>
-            <Input
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="bg-slate-800 border border-purple-500/30"
-              required
-            />
-          </div>
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="border p-2 rounded"
+            required
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="border p-2 rounded"
+            required
+          />
 
-          <div className="space-y-2">
-            <label className="text-sm">Password</label>
-            <Input
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="bg-slate-800 border border-purple-500/30"
-              required
-            />
-          </div>
+          {error && <p className="text-red-500 text-sm">{error}</p>}
 
-          {error && (
-            <div className="text-sm text-red-400 bg-red-500/10 p-2 rounded">
-              {error}
-            </div>
-          )}
-
-          <Button
+          <button
             type="submit"
-            disabled={isLoading}
-            className="w-full bg-gradient-to-r from-purple-600 to-pink-600"
+            className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600"
           >
-            {isLoading ? "Signing in..." : "Sign In"}
-          </Button>
+            {mode === "login" ? "Login" : "Register"}
+          </button>
         </form>
 
-        {!isRegister && (
-          <div className="mt-6 text-xs text-gray-400 border-t border-purple-500/20 pt-4">
-            <p>👤 Member: member@stampify.com</p>
-            <p>📱 Scanner: scanner@stampify.com</p>
-            <p>⚙️ Admin: admin@stampify.com</p>
-            <p>Password: password123</p>
-          </div>
-        )}
-
-        <div className="mt-6 text-center text-sm text-gray-400">
-          {isRegister ? "Already have an account?" : "Don’t have an account?"}{" "}
-          <button
-            onClick={onToggleMode}
-            className="text-purple-400 font-semibold"
-          >
-            {isRegister ? "Sign In" : "Sign Up"}
+        <p className="mt-4 text-center text-sm">
+          {mode === "login" ? "Don't have an account?" : "Already have an account?"}{" "}
+          <button onClick={toggleMode} className="text-blue-500 underline">
+            {mode === "login" ? "Register" : "Login"}
           </button>
-        </div>
+        </p>
       </div>
     </div>
-  )
+  );
 }

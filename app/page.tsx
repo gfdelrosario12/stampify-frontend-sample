@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/auth-context"
 import { ArrowRight, Check, Menu, Shield, Users, X, Zap, QrCode, IdCard } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
-import { LoginModal } from "./login/LoginModal"
+import LoginModal from "./login/LoginModal"
 
 export default function Home() {
   const router = useRouter()

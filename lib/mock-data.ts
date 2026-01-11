@@ -1,105 +1,118 @@
-import type { User, Stamp, Passport, Event, Organization as OrgType } from "./types"
+import type { User, Org, Event, Passport, Stamp } from "./types";
 
-export const organizations: Record<string, OrgType> = {
-  "acme-corp": {
-    id: "acme-corp" as any,
-    name: "ACME Corporation",
-    logo: "🏢",
-  },
-  "tech-events": {
-    id: "tech-events" as any,
-    name: "Tech Events Co",
-    logo: "💻",
-  },
-  "fitness-club": {
-    id: "fitness-club" as any,
-    name: "Fitness Club Pro",
-    logo: "💪",
-  },
-}
+// ================= ORGS =================
+export const organizations: Record<number, Org> = {
+  1: { id: 1, name: "ACME Corporation", logo: "🏢", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  2: { id: 2, name: "Tech Events Co", logo: "💻", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  3: { id: 3, name: "Fitness Club Pro", logo: "💪", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+};
 
-export const stamps: Stamp[] = [
-  {
-    id: "1",
-    eventId: "ev-1",
-    eventName: "Annual Conference 2024",
-    eventDate: "2024-11-15",
-    scannedAt: "2024-11-15T09:30:00Z",
-    location: "Convention Center",
-  },
-  {
-    id: "2",
-    eventId: "ev-2",
-    eventName: "Summer Workshop",
-    eventDate: "2024-08-22",
-    scannedAt: "2024-08-22T14:15:00Z",
-    location: "Tech Hub Downtown",
-  },
-  {
-    id: "3",
-    eventId: "ev-3",
-    eventName: "Networking Mixer",
-    eventDate: "2024-09-10",
-    scannedAt: "2024-09-10T18:45:00Z",
-    location: "Grand Hotel",
-  },
-]
-
-export const mockUsers: Record<string, User> = {
-  "member-1": {
-    id: "member-1",
+// ================= USERS =================
+export const mockUsers: Record<number, User> = {
+  1: {
+    id: 1,
+    firstName: "Alex",
+    lastName: "Johnson",
     name: "Alex Johnson",
     email: "alex.johnson@email.com",
     role: "member",
-    organization: "tech-events",
+    organization: organizations[2],
     avatar: "👤",
+    createdAt: "2024-01-01",
+    updatedAt: "2024-01-01",
   },
-  "scanner-1": {
-    id: "scanner-1",
+  2: {
+    id: 2,
+    firstName: "Sam",
+    lastName: "Chen",
     name: "Sam Chen",
     email: "sam.chen@tech-events.com",
     role: "scanner",
-    organization: "tech-events",
+    organization: organizations[2],
+    createdAt: "2024-01-01",
+    updatedAt: "2024-01-01",
   },
-  "admin-1": {
-    id: "admin-1",
+  3: {
+    id: 3,
+    firstName: "Jordan",
+    lastName: "Smith",
     name: "Jordan Smith",
     email: "jordan@tech-events.com",
     role: "admin",
-    organization: "tech-events",
+    organization: organizations[2],
+    createdAt: "2024-01-01",
+    updatedAt: "2024-01-01",
   },
-}
+};
 
+// ================= EVENTS =================
 export const mockEvents: Event[] = [
   {
-    id: "ev-1",
-    name: "Annual Conference 2024",
-    date: "2024-11-15",
-    location: "Convention Center",
-    organizationId: "tech-events",
-    description: "Annual gathering of tech professionals",
+    id: 1,
+    organization: organizations[2],
+    eventName: "Annual Conference 2024",
+    eventDescription: "Annual gathering of tech professionals",
+    venueName: "Convention Center",
+    scheduledAt: "2024-11-15T09:00:00Z",
+    createdAt: "2024-01-01",
+    updatedAt: "2024-01-01",
   },
   {
-    id: "ev-2",
-    name: "Summer Workshop",
-    date: "2024-08-22",
-    location: "Tech Hub Downtown",
-    organizationId: "tech-events",
-    description: "Hands-on workshop for developers",
+    id: 2,
+    organization: organizations[2],
+    eventName: "Summer Workshop",
+    eventDescription: "Hands-on workshop for developers",
+    venueName: "Tech Hub Downtown",
+    scheduledAt: "2024-08-22T14:00:00Z",
+    createdAt: "2024-01-01",
+    updatedAt: "2024-01-01",
   },
   {
-    id: "ev-3",
-    name: "Networking Mixer",
-    date: "2024-09-10",
-    location: "Grand Hotel",
-    organizationId: "acme-corp",
-    description: "Meet and greet for industry leaders",
+    id: 3,
+    organization: organizations[1],
+    eventName: "Networking Mixer",
+    eventDescription: "Meet and greet for industry leaders",
+    venueName: "Grand Hotel",
+    scheduledAt: "2024-09-10T18:00:00Z",
+    createdAt: "2024-01-01",
+    updatedAt: "2024-01-01",
   },
-]
+];
 
-export const mockPassport: Passport = {
-  id: "passport-1",
-  memberId: "member-1",
-  stamps,
-  createdAt: "2024-01-01T00:00:00Z",
-}
+// ================= PASSPORTS =================
+export const mockPassports: Passport[] = [
+  {
+    id: 1,
+    member: mockUsers[1],
+    issuedAt: "2024-01-01T00:00:00Z",
+    stamps: [],
+    createdAt: "2024-01-01",
+    updatedAt: "2024-01-01",
+  },
+];
+
+// ================= STAMPS =================
+export const mockStamps: Stamp[] = [
+  {
+    id: 1,
+    passport: mockPassports[0],
+    event: mockEvents[0],
+    scanner: mockUsers[2],
+    stampedAt: "2024-11-15T09:30:00Z",
+    valid: true,
+    createdAt: "2024-11-15T09:30:00Z",
+    updatedAt: "2024-11-15T09:30:00Z",
+  },
+  {
+    id: 2,
+    passport: mockPassports[0],
+    event: mockEvents[1],
+    scanner: mockUsers[2],
+    stampedAt: "2024-08-22T14:15:00Z",
+    valid: true,
+    createdAt: "2024-08-22T14:15:00Z",
+    updatedAt: "2024-08-22T14:15:00Z",
+  },
+];
+
+mockPassports[0].stamps = mockStamps; // link stamps to passport

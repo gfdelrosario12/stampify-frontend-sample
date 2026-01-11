@@ -1,73 +1,82 @@
-"use client"
+"use client";
 
-import { createContext, useContext, useState, useEffect } from "react"
+import { createContext, useContext, useState, useEffect } from "react";
+import axios from "axios";
 
 type User = {
-  organization: any
-  name: any
-  id: any
-  email: string
-  role: "member" | "scanner" | "admin"
-}
+  id: number;
+  email: string;
+  role: "member" | "scanner" | "admin";
+  name: string | null;
+  organization: any;
+};
 
 interface AuthContextType {
-  user: User | null
-  login: (email: string, password: string) => Promise<boolean>
-  logout: () => void
+  user: User | null;
+  login: (email: string, password: string) => Promise<boolean>;
+  logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | null>(null)
+const AuthContext = createContext<AuthContextType | null>(null);
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
+  const [user, setUser] = useState<User | null>(null);
 
+  // LOGIN
   const login = async (email: string, password: string): Promise<boolean> => {
-    const lower = email.toLowerCase()
-
-    // ✅ MOCK LOGIN WITH DEMO CREDENTIALS
-    if (
-      password === "password123" &&
-      (lower === "member@stampify.com" ||
-        lower === "scanner@stampify.com" ||
-        lower === "admin@stampify.com")
-    ) {
-      let role: User["role"] = "member"
-
-      if (lower === "scanner@stampify.com") role = "scanner"
-      if (lower === "admin@stampify.com") role = "admin"
-
-      const newUser: User = { email: lower, role, organization: null, name: null, id: null }
-      setUser(newUser)
-
-      // ✅ store in localStorage to persist login
-      localStorage.setItem("stampify-user", JSON.stringify(newUser))
-
-      return true
+    try {
+      const res = await axios.post(
+        `${API_BASE}/users/login`,
+        { email, password },
+        { withCredentials: true } // Send cookies
+      );
+      const userData: User = res.data;
+      setUser(userData);
+      return true;
+    } catch (err: any) {
+      console.error("Login failed", err);
+      return false;
     }
+  };
 
-    throw new Error("Invalid credentials")
-  }
+  // LOGOUT
+  const logout = async () => {
+    try {
+      await axios.post(`${API_BASE}/users/logout`, {}, { withCredentials: true });
+    } catch (err) {
+      console.warn("Logout failed", err);
+    } finally {
+      setUser(null);
+    }
+  };
 
-  const logout = () => {
-    setUser(null)
-    localStorage.removeItem("stampify-user")
-  }
+  // REFRESH USER INFO (calls /users/me)
+  const refreshUser = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/users/me`, { withCredentials: true });
+      setUser(res.data);
+    } catch (err) {
+      setUser(null);
+    }
+  };
 
-  // ✅ Load user on refresh
+  // LOAD USER ON REFRESH
   useEffect(() => {
-    const stored = localStorage.getItem("stampify-user")
-    if (stored) setUser(JSON.parse(stored))
-  }, [])
+    refreshUser();
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
-  )
+  );
 }
 
 export const useAuth = () => {
-  const ctx = useContext(AuthContext)
-  if (!ctx) throw new Error("useAuth must be inside AuthProvider")
-  return ctx
-}
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be inside AuthProvider");
+  return ctx;
+};

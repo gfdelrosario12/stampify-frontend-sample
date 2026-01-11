@@ -1,46 +1,55 @@
-"use client"
+"use client";
 
-import type React from "react"
+import { useState, useEffect } from "react"; // ✅ include useState
+import { useRouter } from "next/navigation";
+import { useAuth } from "./auth-context"; // ✅ remove `type User` import
 
-import { useRouter } from "next/navigation"
-import { useAuth, type UserRole } from "./auth-context"
-import { useEffect } from "react"
+// Define UserRole inline, based on your backend roles
+type UserRole = "member" | "scanner" | "admin";
 
 interface RoleGuardProps {
-  children: React.ReactNode
-  allowedRoles: UserRole[]
-  fallbackUrl?: string
+  children: React.ReactNode;
+  allowedRoles: UserRole[];
+  fallbackUrl?: string;
 }
 
 export function RoleGuard({ children, allowedRoles, fallbackUrl = "/login" }: RoleGuardProps) {
-  const { user, isLoading } = useAuth()
-  const router = useRouter()
+  const { user, refreshUser } = useAuth();
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!isLoading) {
+    const checkAccess = async () => {
+      setLoading(true);
+      await refreshUser();
+
       if (!user) {
-        router.push(fallbackUrl)
-        return
+        router.push(fallbackUrl);
+        return;
       }
 
       if (!allowedRoles.includes(user.role)) {
-        router.push("/unauthorized")
-        return
+        router.push("/unauthorized");
+        return;
       }
-    }
-  }, [user, isLoading, allowedRoles, router, fallbackUrl])
 
-  if (isLoading) {
+      setLoading(false);
+    };
+
+    checkAccess();
+  }, [user, allowedRoles, router, fallbackUrl, refreshUser]);
+
+  if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
-    )
+    );
   }
 
   if (!user || !allowedRoles.includes(user.role)) {
-    return null
+    return null;
   }
 
-  return <>{children}</>
+  return <>{children}</>;
 }
