@@ -1,71 +1,46 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "next/navigation"
 import { MembersManagement } from "@/components/members-management"
 import { EventsManagement } from "@/components/events-management"
-import { mockUsers, mockEvents } from "@/lib/mock-data"
 import { BarChart3, Users, Calendar, TrendingUp, LogOut, Zap } from "lucide-react"
-import type { Event as LibEvent, User as LibUser, Role } from "@/lib/types"
-
-interface AdminUser {
-  id: string
-  name: string
-  email: string
-  role: string
-}
-type AdminEvent = LibEvent
+import type { Event, User, Role } from "@/lib/types"
+import { mockUsers, mockEvents } from "@/lib/mock-data"
 
 export default function AdminPage() {
   const { user: authUser, logout } = useAuth()
   const router = useRouter()
 
-  const user = authUser
-    ? {
-        id: authUser.id,
-        name: authUser.name,
-        email: authUser.email,
-        role: authUser.role,
-        organization: authUser.organization,
-      }
-    : null
+  if (!authUser) return null
 
-  const [members, setMembers] = useState<AdminUser[]>([
-    mockUsers["member-1"] as unknown as AdminUser,
-    mockUsers["scanner-1"] as unknown as AdminUser,
-    { id: "user-4", name: "Taylor Brown", email: "taylor@example.com", role: "member" },
-    { id: "user-5", name: "Morgan Davis", email: "morgan@example.com", role: "member" },
-    { id: "user-6", name: "Casey Wilson", email: "casey@example.com", role: "scanner" },
-  ])
+  const organizationId = authUser.organization.id
 
-  const [events, setEvents] = useState<AdminEvent[]>(
-    mockEvents.map(e => ({
-      id: e.id,
-      name: e.name,
-      date: e.date,
-      location: e.location,
-      organizationId: e.organizationId,
-      description: e.description,
-    }))
+  const [users, setUsers] = useState<User[]>(
+    Object.values(mockUsers).filter(u => u.organization.id === organizationId)
   )
 
-  const [activeTab, setActiveTab] = useState<"overview" | "members" | "events">("overview")
+  const [events, setEvents] = useState<Event[]>(
+    mockEvents.filter(e => e.organization.id === organizationId)
+  )
 
-  const membersForComponent: LibUser[] = members.map(m => ({
-    id: m.id,
-    name: m.name,
-    email: m.email,
-    role: m.role as Role,
-    organization: (mockUsers["member-1"] as any).organization,
-  }))
+  const [activeTab, setActiveTab] = useState<"overview" | "members" | "scanners" | "admins" | "events">("overview")
+  const [logs, setLogs] = useState<string[]>([])
 
-  const handleDeleteMember = (memberId: string) => {
-    setMembers(members.filter(m => m.id !== memberId))
+  // Handlers
+  const handleDeleteUser = (userId: number) => {
+    const userToDelete = users.find(u => u.id === userId)
+    if (!userToDelete) return
+    setUsers(users.filter(u => u.id !== userId))
+    setLogs(prev => [`Deleted ${userToDelete.role} ${userToDelete.firstName} ${userToDelete.lastName}`, ...prev])
   }
 
-  const handleDeleteEvent = (eventId: string) => {
+  const handleDeleteEvent = (eventId: number) => {
+    const eventToDelete = events.find(e => e.id === eventId)
+    if (!eventToDelete) return
     setEvents(events.filter(e => e.id !== eventId))
+    setLogs(prev => [`Deleted event ${eventToDelete.eventName}`, ...prev])
   }
 
   const handleLogout = () => {
@@ -73,128 +48,171 @@ export default function AdminPage() {
     router.push("/")
   }
 
-  if (!user) return null
+  // Filter users by role
+  const members = useMemo(() => users.filter(u => u.role === "member"), [users])
+  const scanners = useMemo(() => users.filter(u => u.role === "scanner"), [users])
+  const admins = useMemo(() => users.filter(u => u.role === "admin"), [users])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      {/* ✅ NAVBAR (Matches ScannerPage) */}
+      {/* NAVBAR */}
       <header className="border-b border-purple-500/20 bg-slate-900/80 backdrop-blur-lg sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-
-            {/* Logo + Brand */}
-            <div className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
-                <Zap className="w-6 h-6 text-white" />
-              </div>
-              <div className="text-2xl font-bold text-white">
-                STAMP<span className="text-pink-400">i</span>FY
-              </div>
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+              <Zap className="w-6 h-6 text-white" />
             </div>
-
-            {/* User Info */}
-            <div className="flex items-center gap-4">
-              <div className="text-right">
-                <p className="text-sm font-medium text-white">{user.name}</p>
-                <p className="text-xs text-purple-300 capitalize">{user.role}</p>
-              </div>
-
-              <button
-                onClick={handleLogout}
-                className="p-2 hover:bg-purple-500/20 rounded-lg transition-colors text-white"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
+            <div className="text-2xl font-bold text-white">
+              STAMP<span className="text-pink-400">i</span>FY
             </div>
           </div>
 
-          {/* ✅ Navigation Tabs (Styled Like ScannerPage Buttons) */}
-          <div className="flex gap-2 border-t border-purple-500/20 pt-3 mt-3">
-            {[
-              { label: "Overview", value: "overview" },
-              { label: "Members", value: "members" },
-              { label: "Events", value: "events" },
-            ].map(tab => (
-              <button
-                key={tab.value}
-                onClick={() => setActiveTab(tab.value as any)}
-                className={`px-4 py-2 rounded-lg text-sm transition-colors ${
-                  activeTab === tab.value
-                    ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white"
-                    : "bg-purple-500/10 text-purple-200 hover:bg-purple-500/20"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <p className="text-sm font-medium text-white">{authUser.firstName} {authUser.lastName}</p>
+              <p className="text-xs text-purple-300 capitalize">{authUser.role}</p>
+            </div>
+
+            <button
+              onClick={handleLogout}
+              className="p-2 hover:bg-purple-500/20 rounded-lg transition-colors text-white"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
           </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="max-w-7xl mx-auto px-4 flex gap-2 border-t border-purple-500/20 pt-3 mt-3">
+          {["overview", "members", "scanners", "admins", "events"].map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab as any)}
+              className={`px-4 py-2 rounded-lg text-sm transition-colors ${
+                activeTab === tab
+                  ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white"
+                  : "bg-purple-500/10 text-purple-200 hover:bg-purple-500/20"
+              }`}
+            >
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </button>
+          ))}
         </div>
       </header>
 
-      {/* ✅ MAIN CONTENT */}
+      {/* MAIN CONTENT */}
       <main className="max-w-7xl mx-auto px-4 py-8 space-y-8">
-
-        {/* ---------------- OVERVIEW TAB ---------------- */}
+        {/* OVERVIEW */}
         {activeTab === "overview" && (
           <>
-            {/* Header */}
             <section>
               <h1 className="text-4xl font-bold mb-2 text-white flex items-center gap-3">
                 <BarChart3 className="w-8 h-8 text-purple-400" />
                 Admin Dashboard
               </h1>
-              <p className="text-purple-200">Manage users, events, and organization settings</p>
+              <p className="text-purple-200">Manage users, events, and view logs</p>
             </section>
 
-            {/* Stats (Now Matches ScannerPage StatCards) */}
             <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-gradient-to-br from-purple-600 to-purple-700 rounded-xl p-6 text-white shadow-lg relative overflow-hidden">
                 <p className="text-sm opacity-90 mb-1">Total Members</p>
-                <p className="text-3xl font-bold">
-                  {members.filter(m => m.role === "member").length}
-                </p>
+                <p className="text-3xl font-bold">{members.length}</p>
                 <Users className="w-10 h-10 opacity-20 absolute bottom-4 right-4" />
               </div>
-
               <div className="bg-gradient-to-br from-pink-600 to-pink-700 rounded-xl p-6 text-white shadow-lg relative">
                 <p className="text-sm opacity-90 mb-1">Active Scanners</p>
-                <p className="text-3xl font-bold">
-                  {members.filter(m => m.role === "scanner").length}
-                </p>
+                <p className="text-3xl font-bold">{scanners.length}</p>
               </div>
-
               <div className="bg-gradient-to-br from-purple-700 to-pink-600 rounded-xl p-6 text-white shadow-lg">
-                <p className="text-sm opacity-90 mb-1">Total Scans</p>
-                <p className="text-3xl font-bold">142</p>
+                <p className="text-sm opacity-90 mb-1">Admins</p>
+                <p className="text-3xl font-bold">{admins.length}</p>
               </div>
-
               <div className="bg-gradient-to-br from-purple-500 to-purple-700 rounded-xl p-6 text-white shadow-lg">
                 <p className="text-sm opacity-90 mb-1">Upcoming Events</p>
                 <p className="text-3xl font-bold">{events.length}</p>
               </div>
             </section>
+
+            <section className="bg-slate-800/50 rounded-xl border border-purple-500/20 p-6 backdrop-blur-sm mt-6">
+              <h2 className="text-xl text-white font-semibold mb-3">Activity Logs</h2>
+              <ul className="text-purple-200 text-sm space-y-1 max-h-48 overflow-y-auto">
+                {logs.length === 0 ? <li>No logs yet</li> : logs.map((log, idx) => <li key={idx}>• {log}</li>)}
+              </ul>
+            </section>
           </>
         )}
 
-        {/* ---------------- MEMBERS TAB ---------------- */}
+        {/* MEMBERS */}
         {activeTab === "members" && (
           <section className="bg-slate-800/50 rounded-xl border border-purple-500/20 p-6 backdrop-blur-sm">
             <MembersManagement
-              members={membersForComponent}
-              onAddMember={() => {}}
-              onEditMember={() => {}}
-              onDeleteMember={handleDeleteMember}
+              members={members}
+              org={authUser.organization}
+              onAddMember={(m: User) => {
+                setUsers(prev => [...prev, m])
+                setLogs(prev => [`Added member ${m.firstName} ${m.lastName}`, ...prev])
+              }}
+              onEditMember={(updated: User) => {
+                setUsers(prev => prev.map(u => (u.id === updated.id ? updated : u)))
+                setLogs(prev => [`Edited member ${updated.firstName} ${updated.lastName}`, ...prev])
+              }}
+              onDeleteMember={handleDeleteUser}
             />
           </section>
         )}
 
-        {/* ---------------- EVENTS TAB ---------------- */}
+        {/* SCANNERS */}
+        {activeTab === "scanners" && (
+          <section className="bg-slate-800/50 rounded-xl border border-purple-500/20 p-6 backdrop-blur-sm">
+            <MembersManagement
+              members={scanners}
+              org={authUser.organization}
+              onAddMember={(m: User) => {
+                setUsers(prev => [...prev, m])
+                setLogs(prev => [`Added scanner ${m.firstName} ${m.lastName}`, ...prev])
+              }}
+              onEditMember={(updated: User) => {
+                setUsers(prev => prev.map(u => (u.id === updated.id ? updated : u)))
+                setLogs(prev => [`Edited scanner ${updated.firstName} ${updated.lastName}`, ...prev])
+              }}
+              onDeleteMember={handleDeleteUser}
+            />
+          </section>
+        )}
+
+        {/* ADMINS */}
+        {activeTab === "admins" && (
+          <section className="bg-slate-800/50 rounded-xl border border-purple-500/20 p-6 backdrop-blur-sm">
+            <MembersManagement
+              members={admins}
+              org={authUser.organization}
+              onAddMember={(m: User) => {
+                setUsers(prev => [...prev, m])
+                setLogs(prev => [`Added admin ${m.firstName} ${m.lastName}`, ...prev])
+              }}
+              onEditMember={(updated: User) => {
+                setUsers(prev => prev.map(u => (u.id === updated.id ? updated : u)))
+                setLogs(prev => [`Edited admin ${updated.firstName} ${updated.lastName}`, ...prev])
+              }}
+              onDeleteMember={handleDeleteUser}
+            />
+          </section>
+        )}
+
+        {/* EVENTS */}
         {activeTab === "events" && (
           <section className="bg-slate-800/50 rounded-xl border border-purple-500/20 p-6 backdrop-blur-sm">
             <EventsManagement
               events={events}
-              onAddEvent={() => {}}
-              onEditEvent={() => {}}
+              org={authUser.organization}
+              onAddEvent={(e: Event) => {
+                setEvents(prev => [...prev, e])
+                setLogs(prev => [`Added event ${e.eventName}`, ...prev])
+              }}
+              onEditEvent={(updated: Event) => {
+                setEvents(prev => prev.map(ev => (ev.id === updated.id ? updated : ev)))
+                setLogs(prev => [`Edited event ${updated.eventName}`, ...prev])
+              }}
               onDeleteEvent={handleDeleteEvent}
             />
           </section>

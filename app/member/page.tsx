@@ -1,46 +1,33 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "next/navigation"
-import { StampifyLogo } from "@/components/stampify-logo"
-import { QrCode, Award, Check, Calendar, LogOut, Zap, Star, TrendingUp } from "lucide-react"
-import { mockUsers, mockPassport, mockEvents } from "@/lib/mock-data"
-import type { Stamp as ExternalStamp } from "@/lib/types"
+import { Zap, QrCode, Award, Check, Calendar, Star, TrendingUp, LogOut } from "lucide-react"
+import type { User, Stamp as StampType } from "@/lib/types"
+
+/* ------------------------- API BASE ------------------------- */
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000" // <-- set in .env
 
 /* ------------------------- TYPES ------------------------- */
 
-interface User {
-  id: string
-  name: string
-  email?: string
-  photo?: React.ReactNode
+interface EventData {
+  id: number
+  eventName: string
+  scheduledAt?: string
 }
-
-type Stamp = ExternalStamp & {
-  userId?: string
-  timestamp?: string | number
-}
-
-interface EventItem {
-  id: string
-  name: string
-  date?: string
-}
-
-/* ------------------------- DIGITAL ID CARD ------------------------- */
 
 interface DigitalIDCardProps {
   user: User
-  stamps: Stamp[]
-  events: EventItem[]
+  stamps: StampType[]
+  events: EventData[]
   flipped: boolean
   onFlip: () => void
 }
 
-const DigitalIDCard: React.FC<DigitalIDCardProps> = ({ user, stamps, events, flipped, onFlip }) => {
-  const userStamps = stamps.filter(s => s.userId === user.id)
+/* ------------------------- DIGITAL ID CARD ------------------------- */
 
+const DigitalIDCard: React.FC<DigitalIDCardProps> = ({ user, stamps, events, flipped, onFlip }) => {
   return (
     <div className="perspective-1000 w-full max-w-md mx-auto">
       <div
@@ -58,13 +45,13 @@ const DigitalIDCard: React.FC<DigitalIDCardProps> = ({ user, stamps, events, fli
               <span className="text-white font-bold text-lg">STAMP<span className="text-pink-200">i</span>FY</span>
             </div>
             <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full">
-              <span className="text-white text-xs font-semibold">MEMBER</span>
+              <span className="text-white text-xs font-semibold">{user.role.toUpperCase()}</span>
             </div>
           </div>
 
           <div className="flex items-center gap-6 mb-6">
             <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center text-5xl shadow-lg ring-4 ring-white/30">
-              {user.photo}
+              {user.avatar || user.name.charAt(0)}
             </div>
             <div className="text-white flex-1">
               <h3 className="text-2xl font-bold mb-1">{user.name}</h3>
@@ -91,13 +78,13 @@ const DigitalIDCard: React.FC<DigitalIDCardProps> = ({ user, stamps, events, fli
               Event Stamps
             </h3>
             <span className="bg-white text-purple-700 px-3 py-1 rounded-full text-sm font-bold shadow-lg">
-              {userStamps.length}/{events.length}
+              {stamps.length}/{events.length}
             </span>
           </div>
 
           <div className="space-y-3 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
             {events.map(event => {
-              const stamp = userStamps.find(s => s.eventId === event.id)
+              const stamp = stamps.find(s => s.event.id === event.id)
               return (
                 <div
                   key={event.id}
@@ -109,8 +96,8 @@ const DigitalIDCard: React.FC<DigitalIDCardProps> = ({ user, stamps, events, fli
                 >
                   <div className="flex justify-between items-center">
                     <div className="text-white">
-                      <p className="font-semibold text-sm">{event.name}</p>
-                      <p className="text-xs text-purple-100">{event.date}</p>
+                      <p className="font-semibold text-sm">{event.eventName}</p>
+                      <p className="text-xs text-purple-100">{event.scheduledAt}</p>
                     </div>
                     {stamp ? (
                       <Check className="w-5 h-5 text-green-400" />
@@ -141,11 +128,7 @@ const StatsCard: React.FC<{
 }> = ({ icon, title, value, subtitle, gradient }) => {
   return (
     <div className={`bg-gradient-to-br ${gradient} rounded-xl p-6 text-white shadow-lg`}>
-      <div className="flex items-start justify-between mb-4">
-        <div className="p-3 bg-white/20 backdrop-blur-sm rounded-lg">
-          {icon}
-        </div>
-      </div>
+      <div className="flex items-start justify-between mb-4">{icon}</div>
       <h3 className="text-3xl font-bold mb-1">{value}</h3>
       <p className="text-sm opacity-90">{title}</p>
       {subtitle && <p className="text-xs opacity-75 mt-1">{subtitle}</p>}
@@ -155,57 +138,76 @@ const StatsCard: React.FC<{
 
 /* ------------------------- MEMBER DASHBOARD ------------------------- */
 
-const MemberDashboard: React.FC<{
-  user: User
-  stamps: Stamp[]
-  events: EventItem[]
-}> = ({ user, stamps, events }) => {
+export default function MemberDashboard() {
   const router = useRouter()
-  const { logout } = useAuth()
+  const { user: authUser, logout } = useAuth()
+  const [user, setUser] = useState<User | null>(null)
+  const [stamps, setStamps] = useState<StampType[]>([])
+  const [events, setEvents] = useState<EventData[]>([])
   const [flipped, setFlipped] = useState(false)
+
+  useEffect(() => {
+    if (!authUser) return
+
+    const fetchData = async () => {
+      try {
+        // Fetch user info
+        const userRes = await fetch(`${API_BASE}/users/${authUser.id}`)
+        const userData: User = await userRes.json()
+        setUser(userData)
+
+        // Fetch stamps
+        const stampsRes = await fetch(`${API_BASE}/stamps?userId=${authUser.id}`)
+        const stampsData: StampType[] = await stampsRes.json()
+        setStamps(stampsData)
+
+        // Fetch events
+        const eventsRes = await fetch(`${API_BASE}/events?organizationId=${userData.organization.id}`)
+        const eventsData: EventData[] = await eventsRes.json()
+        setEvents(eventsData)
+      } catch (err) {
+        console.error("Error fetching dashboard data:", err)
+      }
+    }
+
+    fetchData()
+  }, [authUser])
+
+  if (!user) return <div className="min-h-screen flex items-center justify-center text-white">Loading...</div>
+
+  const completionRate = Math.round((stamps.length / events.length) * 100)
 
   const handleLogout = () => {
     logout()
     router.push("/")
   }
 
-  const userStamps = stamps.filter(s => s.userId === user.id)
-  const completionRate = Math.round((userStamps.length / events.length) * 100)
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       {/* NAVBAR */}
       <header className="border-b border-purple-500/20 bg-slate-900/80 backdrop-blur-lg sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
-                <Zap className="w-6 h-6 text-white" />
-              </div>
-              <div className="text-2xl font-bold text-white">
-                STAMP<span className="text-pink-400">i</span>FY
-              </div>
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+              <Zap className="w-6 h-6 text-white" />
             </div>
-
-            <div className="flex items-center gap-4">
-              <div className="text-right">
-                <p className="text-sm font-medium text-white">{user.name}</p>
-                <p className="text-xs text-purple-300">Member</p>
-              </div>
-
-              <button
-                onClick={handleLogout}
-                className="p-2 hover:bg-purple-500/20 rounded-lg transition-colors text-white"
-                title="Logout"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
+            <div className="text-2xl font-bold text-white">
+              STAMP<span className="text-pink-400">i</span>FY
             </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <p className="text-sm font-medium text-white">{user.name}</p>
+              <p className="text-xs text-purple-300">{user.role}</p>
+            </div>
+            <button onClick={handleLogout} className="p-2 hover:bg-purple-500/20 rounded-lg transition-colors text-white" title="Logout">
+              <LogOut className="w-5 h-5" />
+            </button>
           </div>
         </div>
       </header>
 
-      {/* MAIN CONTENT */}
       <main className="max-w-7xl mx-auto px-4 py-8 space-y-8">
         {/* Welcome Section */}
         <div className="text-center">
@@ -220,7 +222,7 @@ const MemberDashboard: React.FC<{
           <StatsCard
             icon={<Award className="w-6 h-6" />}
             title="Total Stamps"
-            value={userStamps.length}
+            value={stamps.length}
             subtitle={`out of ${events.length} events`}
             gradient="from-purple-600 to-purple-700"
           />
@@ -243,13 +245,7 @@ const MemberDashboard: React.FC<{
         {/* Digital ID Card */}
         <div>
           <h3 className="text-2xl font-bold mb-4 text-center text-white">Your Digital ID</h3>
-          <DigitalIDCard
-            user={user}
-            stamps={stamps}
-            events={events}
-            flipped={flipped}
-            onFlip={() => setFlipped(!flipped)}
-          />
+          <DigitalIDCard user={user} stamps={stamps} events={events} flipped={flipped} onFlip={() => setFlipped(!flipped)} />
         </div>
 
         {/* Recent Activity */}
@@ -259,7 +255,7 @@ const MemberDashboard: React.FC<{
             Recent Activity
           </h3>
 
-          {userStamps.length === 0 ? (
+          {stamps.length === 0 ? (
             <div className="text-center py-12">
               <div className="w-16 h-16 bg-purple-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Award className="w-8 h-8 text-purple-400" />
@@ -269,15 +265,15 @@ const MemberDashboard: React.FC<{
             </div>
           ) : (
             <div className="space-y-3">
-              {userStamps.slice(0, 5).map(stamp => {
-                const event = events.find(e => e.id === stamp.eventId)
+              {stamps.slice(0, 5).map(stamp => {
+                const event = events.find(e => e.id === stamp.event.id)
                 return (
                   <div key={stamp.id} className="bg-purple-500/10 border-l-4 border-purple-500 rounded-r-lg pl-4 pr-4 py-3 hover:bg-purple-500/20 transition-colors">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="font-semibold text-white">{event?.name}</p>
+                        <p className="font-semibold text-white">{event?.eventName}</p>
                         <p className="text-sm text-purple-300">
-                          {stamp.timestamp ? new Date(stamp.timestamp).toLocaleString() : "Unknown date"}
+                          {stamp.stampedAt ? new Date(stamp.stampedAt).toLocaleString() : "Unknown date"}
                         </p>
                       </div>
                       <Check className="w-5 h-5 text-green-400" />
@@ -308,12 +304,4 @@ const MemberDashboard: React.FC<{
       `}</style>
     </div>
   )
-}
-
-/* ------------------------- DEFAULT PAGE ------------------------- */
-
-export default function MemberPage() {
-  const user = mockUsers["member-1"]
-
-  return <MemberDashboard user={user} stamps={mockPassport.stamps} events={mockEvents} />
 }
