@@ -1,117 +1,111 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import axios from "axios";
+import { useState } from "react";
+import { useAuth } from "@/lib/auth-context";
+import { ArrowRight, X } from "lucide-react";
 
-type Mode = "login" | "register";
-
-interface Organization {
-  id: number;
-  name: string;
+interface LoginModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  isRegister: boolean;
+  onToggleMode: () => void;
 }
 
-// Dynamic base URL from environment variable
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
-
-export default function LoginModal() {
-  const [mode, setMode] = useState<Mode>("login");
+export default function LoginModal({ isOpen, onClose, isRegister, onToggleMode }: LoginModalProps) {
+  const auth = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [organizationId, setOrganizationId] = useState<number | "">("");
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [loadingOrgs, setLoadingOrgs] = useState(true);
-
-  // Fetch organizations dynamically for registration
-  useEffect(() => {
-    async function fetchOrganizations() {
-      try {
-        const res = await axios.get<Organization[]>(`${API_BASE}/organizations`);
-        setOrganizations(res.data);
-      } catch (err) {
-        console.error("Failed to fetch organizations", err);
-      } finally {
-        setLoadingOrgs(false);
-      }
-    }
-
-    if (mode === "register") {
-      fetchOrganizations();
-    }
-  }, [mode]);
-
-  const toggleMode = () => {
-    setMode(mode === "login" ? "register" : "login");
-    setError(null);
-  };
+  const [success, setSuccess] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
+    setLoading(true);
 
     try {
-      if (mode === "login") {
+      if (!isRegister) {
         // LOGIN
-        await axios.post(
-          `${API_BASE}/users/login`,
-          { email, password },
-          { withCredentials: true } // For HTTP-only cookie from backend
-        );
-        alert("Login successful!");
+        const successLogin = await auth.login(email, password);
+        if (successLogin) onClose();
+        else setError("Invalid credentials");
       } else {
         // REGISTER
-        if (!firstName || !lastName || !organizationId) {
-          setError("All fields are required for registration");
+        if (!firstName || !lastName) {
+          setError("First and last name are required for registration");
+          setLoading(false);
           return;
         }
 
-        await axios.post(
-          `${API_BASE}/users`,
-          {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/users`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
             email,
             password,
             firstName,
             lastName,
-            organizationId,
-            role: "MEMBER", // Default role
-          },
-          { withCredentials: true }
-        );
+            role: "member",
+          }),
+        });
 
-        alert("Registration successful! Please login.");
-        setMode("login");
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.message || "Registration failed");
+        }
+
+        const data = await res.json();
+
+        // Show success message
+        setSuccess(`Account created successfully! Your username is ${data.email}`);
+        setError(null);
+        setLoading(false);
+
+        // Auto-switch to login after 3 seconds
+        setTimeout(() => {
+          onToggleMode();
+          setSuccess(null);
+        }, 3000);
       }
-
-      // Clear form fields
-      setEmail("");
-      setPassword("");
-      setFirstName("");
-      setLastName("");
-      setOrganizationId("");
     } catch (err: any) {
       console.error(err);
-      if (err.response?.data?.message) setError(err.response.data.message);
-      else if (err.response?.status === 401) setError("Invalid credentials");
-      else setError("Something went wrong. Please try again.");
+      setError(err?.message || "Something went wrong");
+      setLoading(false);
     }
   };
 
-  return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-      <div className="bg-white rounded-xl p-6 w-96 shadow-lg">
-        <h2 className="text-2xl font-bold mb-4">{mode === "login" ? "Login" : "Register"}</h2>
+  if (!isOpen) return null;
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          {mode === "register" && (
+  return (
+    <div className="fixed inset-0 flex items-center justify-center bg-black/40 z-50">
+      <div className="relative bg-slate-900/50 backdrop-blur-md text-white rounded-2xl p-8 w-96 shadow-2xl border border-purple-500/20">
+
+        {/* Close Button */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 p-1 text-gray-400 hover:text-white rounded-full transition"
+        >
+          <X className="w-6 h-6" />
+        </button>
+
+        <h2 className="text-2xl font-bold mb-6 text-center">
+          {isRegister ? "Register" : "Login"}
+        </h2>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {isRegister && (
             <>
               <input
                 type="text"
                 placeholder="First Name"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
-                className="border p-2 rounded"
+                className="bg-slate-800/70 text-white border border-purple-500/30 p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                 required
               />
               <input
@@ -119,27 +113,9 @@ export default function LoginModal() {
                 placeholder="Last Name"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
-                className="border p-2 rounded"
+                className="bg-slate-800/70 text-white border border-purple-500/30 p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                 required
               />
-
-              {loadingOrgs ? (
-                <p>Loading organizations...</p>
-              ) : (
-                <select
-                  value={organizationId}
-                  onChange={(e) => setOrganizationId(Number(e.target.value))}
-                  className="border p-2 rounded"
-                  required
-                >
-                  <option value="">Select Organization</option>
-                  {organizations.map((org) => (
-                    <option key={org.id} value={org.id}>
-                      {org.name}
-                    </option>
-                  ))}
-                </select>
-              )}
             </>
           )}
 
@@ -148,7 +124,7 @@ export default function LoginModal() {
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="border p-2 rounded"
+            className="bg-slate-800/70 text-white border border-purple-500/30 p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
             required
           />
           <input
@@ -156,24 +132,30 @@ export default function LoginModal() {
             placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="border p-2 rounded"
+            className="bg-slate-800/70 text-white border border-purple-500/30 p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
             required
           />
 
           {error && <p className="text-red-500 text-sm">{error}</p>}
+          {success && <p className="text-green-400 text-sm">{success}</p>}
 
           <button
             type="submit"
-            className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600"
+            disabled={loading}
+            className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition flex items-center justify-center gap-2"
           >
-            {mode === "login" ? "Login" : "Register"}
+            {isRegister ? "Register" : "Login"}
+            <ArrowRight className="w-5 h-5" />
           </button>
         </form>
 
-        <p className="mt-4 text-center text-sm">
-          {mode === "login" ? "Don't have an account?" : "Already have an account?"}{" "}
-          <button onClick={toggleMode} className="text-blue-500 underline">
-            {mode === "login" ? "Register" : "Login"}
+        <p className="mt-4 text-center text-sm text-gray-300">
+          {isRegister ? "Already have an account?" : "Don't have an account?"}{" "}
+          <button
+            onClick={onToggleMode}
+            className="text-purple-400 hover:text-purple-300 underline"
+          >
+            {isRegister ? "Login" : "Register"}
           </button>
         </p>
       </div>

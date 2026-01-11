@@ -75,11 +75,11 @@ export function IDCard3D({ user, passport, onStampClick }: IDCard3DProps) {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-xs opacity-75 font-semibold tracking-wider">MEMBER ID</p>
-                  <p className="font-mono text-sm font-semibold">{user.id.toUpperCase()}</p>
+                  <p className="font-mono text-sm font-semibold">{user.id.toString().toUpperCase()}</p>
                 </div>
                 <div>
                   <p className="text-xs opacity-75 font-semibold tracking-wider">STAMPS</p>
-                  <p className="font-semibold text-2xl">{passport.stamps.length}</p>
+                  <p className="font-semibold text-2xl">{(passport.stamps || []).length}</p>
                 </div>
               </div>
             </div>
@@ -116,8 +116,8 @@ export function IDCard3D({ user, passport, onStampClick }: IDCard3DProps) {
 
             {/* Stamps Grid */}
             <div className="flex-1 grid grid-cols-3 gap-3 overflow-y-auto">
-              {passport.stamps.length > 0 ? (
-                passport.stamps.map((stamp, index) => (
+              {(passport.stamps || []).length > 0 ? (
+                (passport.stamps || []).map((stamp, index) => (
                   <button
                     key={stamp.id}
                     onClick={() => onStampClick(index)}
@@ -135,7 +135,7 @@ export function IDCard3D({ user, passport, onStampClick }: IDCard3DProps) {
 
             {/* Footer */}
             <div className="mt-4 pt-4 border-t border-border/50 text-xs text-muted-foreground text-center">
-              <p>Total Stamps: {passport.stamps.length}</p>
+              <p>Total Stamps: {(passport.stamps || []).length}</p>
             </div>
           </div>
         </div>

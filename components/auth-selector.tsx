@@ -1,22 +1,23 @@
 "use client"
 
 import { useState } from "react"
-import type { User } from "@/lib/types"
+import type { User, Org } from "@/lib/types"
 import { mockUsers, organizations } from "@/lib/mock-data"
 import { StampifyLogo } from "./stampify-logo"
 import { LogIn } from "lucide-react"
 
 interface AuthSelectorProps {
-  onSelectUser: (user: User, org: string) => void
+  onSelectUser: (user: User, org: Org) => void
 }
 
 export function AuthSelector({ onSelectUser }: AuthSelectorProps) {
-  const [selectedRole, setSelectedRole] = useState<string>("member-1")
+  const [selectedRole, setSelectedRole] = useState<string>("member")
   const [selectedOrg, setSelectedOrg] = useState<string>("tech-events")
 
   const handleLogin = () => {
     const user = mockUsers[selectedRole]
-    onSelectUser(user, selectedOrg)
+    const org = organizations[selectedOrg]
+    onSelectUser(user, org)
   }
 
   return (

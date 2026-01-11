@@ -1,25 +1,26 @@
 "use client"
 
 import { useState } from "react"
-import type { Event, OrgType } from "@/lib/types"
+import type { Event, Org } from "@/lib/types"
 import { Trash2, Edit2, Plus, Calendar } from "lucide-react"
 import { AddEventModal } from "./event-add-modal"
 
 interface EventsManagementProps {
   events: Event[]
+  org: Org
   onAddEvent?: (event: Event) => void
   onEditEvent?: (event: Event) => void
-  onDeleteEvent?: (eventId: string) => void
+  onDeleteEvent?: (eventId: number) => void
 }
 
-export function EventsManagement({ events, onAddEvent, onEditEvent, onDeleteEvent }: EventsManagementProps) {
+export function EventsManagement({ events, org, onAddEvent, onEditEvent, onDeleteEvent }: EventsManagementProps) {
   const [filterStatus, setFilterStatus] = useState<"all" | "upcoming" | "past">("all")
   const [showAddModal, setShowAddModal] = useState(false)
 
   const now = new Date()
 
   const filteredEvents = events.filter((e) => {
-    const eventDate = new Date(e.date)
+    const eventDate = new Date(e.scheduledAt || "")
     if (filterStatus === "upcoming") return eventDate >= now
     if (filterStatus === "past") return eventDate < now
     return true
@@ -28,12 +29,14 @@ export function EventsManagement({ events, onAddEvent, onEditEvent, onDeleteEven
   const handleAddEvent = (data: { name: string; date: string; location: string; description: string }) => {
     if (!onAddEvent) return
     const newEvent: Event = {
-      id: crypto.randomUUID(),
-      name: data.name,
-      date: data.date,
-      location: data.location,
-      organizationId: "org-1" as unknown as OrgType,
-      description: data.description,
+      id: Date.now(),
+      organization: org,
+      eventName: data.name,
+      eventDescription: data.description,
+      venueName: data.location,
+      scheduledAt: data.date,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     }
     onAddEvent(newEvent)
   }
@@ -86,7 +89,7 @@ export function EventsManagement({ events, onAddEvent, onEditEvent, onDeleteEven
             <div className="p-8 text-center text-purple-300">No events found</div>
           ) : (
             filteredEvents.map((event) => {
-              const eventDate = new Date(event.date)
+              const eventDate = new Date(event.scheduledAt || "")
               const isUpcoming = eventDate >= new Date()
 
               return (
@@ -95,14 +98,14 @@ export function EventsManagement({ events, onAddEvent, onEditEvent, onDeleteEven
                   className="p-4 flex items-center justify-between bg-slate-900/40 hover:bg-purple-500/10 transition-all"
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-white">{event.name}</p>
+                    <p className="font-medium text-white">{event.eventName}</p>
 
                     <div className="flex items-center gap-4 mt-1 text-sm text-purple-300">
                       <div className="flex items-center gap-1">
                         <Calendar className="w-3 h-3 text-purple-400" />
                         {eventDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                       </div>
-                      <span className="opacity-80">{event.location}</span>
+                      <span className="opacity-80">{event.venueName}</span>
                     </div>
                   </div>
 

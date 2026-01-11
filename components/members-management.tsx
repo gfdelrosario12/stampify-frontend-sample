@@ -1,18 +1,19 @@
 "use client"
 
 import { useState } from "react"
-import type { User, Role } from "@/lib/types"
+import type { User, Role, Org } from "@/lib/types"
 import { Trash2, Edit2, Plus, Search } from "lucide-react"
 import { AddMemberModal } from "./member-add-modal"
 
 interface MembersManagementProps {
   members: User[]
+  org: Org
   onAddMember?: (member: User) => void
   onEditMember?: (member: User) => void
-  onDeleteMember?: (memberId: string) => void
+  onDeleteMember?: (memberId: number) => void
 }
 
-export function MembersManagement({ members, onAddMember, onEditMember, onDeleteMember }: MembersManagementProps) {
+export function MembersManagement({ members, org, onAddMember, onEditMember, onDeleteMember }: MembersManagementProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [sortBy, setSortBy] = useState<"name" | "joined">("name")
   const [showAddModal, setShowAddModal] = useState(false)
@@ -21,18 +22,22 @@ export function MembersManagement({ members, onAddMember, onEditMember, onDelete
     .filter((m) => m.name.toLowerCase().includes(searchTerm.toLowerCase()))
     .sort((a, b) => {
       if (sortBy === "name") return a.name.localeCompare(b.name)
-      return b.id.localeCompare(a.id)
+      return b.id - a.id
     })
 
   const handleAddMember = (data: { name: string; email: string; role: string }) => {
     if (!onAddMember) return
 
     const newMember: User = {
-      id: crypto.randomUUID(),
+      id: Date.now(),
+      firstName: data.name.split(' ')[0] || '',
+      lastName: data.name.split(' ').slice(1).join(' ') || '',
       name: data.name,
       email: data.email,
       role: data.role as Role,
-      organization: "acme-corp"
+      organization: org,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     }
 
     onAddMember(newMember)
@@ -123,7 +128,7 @@ export function MembersManagement({ members, onAddMember, onEditMember, onDelete
                   </button>
 
                   <button
-                    onClick={() => onDeleteMember?.(member.id)}
+                    onClick={() => onDeleteMember?.(Number(member.id))}
                     className="p-2 hover:bg-red-500/20 rounded-lg text-red-400"
                   >
                     <Trash2 className="w-4 h-4" />
