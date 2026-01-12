@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { ArrowRight, X } from "lucide-react";
+import { ArrowRight, X, Eye, EyeOff } from "lucide-react";
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -15,11 +15,21 @@ export default function LoginModal({ isOpen, onClose, isRegister, onToggleMode }
   const auth = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Clear confirm password when switching modes
+  useEffect(() => {
+    if (!isRegister) {
+      setConfirmPassword("");
+    }
+  }, [isRegister]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,6 +47,12 @@ export default function LoginModal({ isOpen, onClose, isRegister, onToggleMode }
         // REGISTER
         if (!firstName || !lastName) {
           setError("First and last name are required for registration");
+          setLoading(false);
+          return;
+        }
+
+        if (password !== confirmPassword) {
+          setError("Passwords do not match");
           setLoading(false);
           return;
         }
@@ -127,14 +143,43 @@ export default function LoginModal({ isOpen, onClose, isRegister, onToggleMode }
             className="bg-slate-800/70 text-white border border-purple-500/30 p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
             required
           />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="bg-slate-800/70 text-white border border-purple-500/30 p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-            required
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"}
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="bg-slate-800/70 text-white border border-purple-500/30 p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 w-full pr-10"
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
+            >
+              {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+            </button>
+          </div>
+
+          {isRegister && (
+            <div className="relative">
+              <input
+                type={showConfirmPassword ? "text" : "password"}
+                placeholder="Confirm Password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="bg-slate-800/70 text-white border border-purple-500/30 p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 w-full pr-10"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
+              >
+                {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
+          )}
 
           {error && <p className="text-red-500 text-sm">{error}</p>}
           {success && <p className="text-green-400 text-sm">{success}</p>}
