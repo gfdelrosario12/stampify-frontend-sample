@@ -32,10 +32,9 @@ export interface Event {
   eventBadge?: string;
   venueName?: string;
   venueImageUrl?: string;
-  scheduledAt?: string;
+  scheduledAt?: string; // LocalDateTime as ISO string
   createdAt?: string;
   updatedAt?: string;
-  stamps?: Stamp[];
 }
 
 export interface Passport {

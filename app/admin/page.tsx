@@ -9,7 +9,7 @@ import { BarChart3, Users, Calendar, TrendingUp, LogOut, Zap, Loader2 } from "lu
 import type { Event, AuditLog, User } from "@/lib/types"
 
 /* ------------------------- API BASE ------------------------- */
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080"
 
 // Helper function to convert AuthUser to User type for components
 function convertAuthUserToUser(authUser: AuthUser, org: Org): User {
@@ -45,25 +45,36 @@ export default function AdminPage() {
   const { user: authUser, logout } = useAuth()
   const router = useRouter()
 
-  if (!authUser) return null
-
-  const organizationId = authUser.organizationId
-
+  // ------------------------- HOOKS -------------------------
   const [users, setUsers] = useState<AuthUser[]>([])
   const [events, setEvents] = useState<Event[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<"overview" | "members" | "scanners" | "admins" | "events">("overview")
 
-  // Fetch data on component mount
+  // Get organizationId safely
+  const organizationId = authUser?.organizationId
+
+  // ------------------------- DATA FETCH -------------------------
   useEffect(() => {
+    if (!authUser || !organizationId) return
     const fetchData = async () => {
       try {
         const [usersRes, eventsRes, logsRes] = await Promise.all([
-          fetch(`${API_BASE}/api/users?organizationId=${organizationId}`),
-          fetch(`${API_BASE}/api/events?organizationId=${organizationId}`),
-          fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
+          fetch(`${API_BASE}/admins/users`, {
+            credentials: "include",
+          }),
+          fetch(`${API_BASE}/events/organization/${organizationId}`, {
+            credentials: "include",
+          }),
+          fetch(`${API_BASE}/admins/audit/logs`, {
+            credentials: "include",
+          })
         ])
+
+        if (!usersRes.ok || !eventsRes.ok || !logsRes.ok) {
+          throw new Error("Failed to fetch admin data: " + [usersRes.status, eventsRes.status, logsRes.status].join(", "))
+        }
 
         const usersData: AuthUser[] = await usersRes.json()
         const eventsData: Event[] = await eventsRes.json()
@@ -80,15 +91,21 @@ export default function AdminPage() {
     }
 
     fetchData()
-  }, [organizationId])
+  }, [authUser, organizationId])
 
-  // Handlers
+  // ------------------------- HANDLERS -------------------------
   const handleDeleteUser = async (userId: number) => {
+    if (!authUser) return
     try {
-      await fetch(`${API_BASE}/api/users/${userId}`, { method: "DELETE" })
+      await fetch(`${API_BASE}/admins/users/${userId}?actorId=${authUser.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      })
       setUsers(users.filter(u => u.id !== userId))
       // Refresh audit logs
-      const logsRes = await fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
+      const logsRes = await fetch(`${API_BASE}/admins/audit/logs`, {
+        credentials: "include",
+      })
       const logsData: AuditLog[] = await logsRes.json()
       setAuditLogs(logsData)
     } catch (error) {
@@ -98,10 +115,15 @@ export default function AdminPage() {
 
   const handleDeleteEvent = async (eventId: number) => {
     try {
-      await fetch(`${API_BASE}/api/events/${eventId}`, { method: "DELETE" })
+      await fetch(`${API_BASE}/events/${eventId}`, {
+        method: "DELETE",
+        credentials: "include",
+      })
       setEvents(events.filter(e => e.id !== eventId))
       // Refresh audit logs
-      const logsRes = await fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
+      const logsRes = await fetch(`${API_BASE}/admins/audit/logs`, {
+        credentials: "include",
+      })
       const logsData: AuditLog[] = await logsRes.json()
       setAuditLogs(logsData)
     } catch (error) {
@@ -114,17 +136,27 @@ export default function AdminPage() {
     router.push("/")
   }
 
-  // Create a temporary Org object from auth user data
+  // Temporary Org object
   const tempOrg: Org = {
-    id: authUser.organizationId,
-    name: "Organization", // This should ideally come from API
+    id: authUser?.organizationId ?? 0,
+    name: "Organization",
   }
 
-  // Filter users by role and convert to User type for components
+  // Filter users by role
   const members = useMemo(() => users.filter(u => u.role === "MEMBER").map(u => convertAuthUserToUser(u, tempOrg)), [users, tempOrg])
   const scanners = useMemo(() => users.filter(u => u.role === "SCANNER").map(u => convertAuthUserToUser(u, tempOrg)), [users, tempOrg])
   const admins = useMemo(() => users.filter(u => u.role === "ADMIN").map(u => convertAuthUserToUser(u, tempOrg)), [users, tempOrg])
 
+  // ------------------------- EARLY RETURN -------------------------
+  if (!authUser) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
+      </div>
+    )
+  }
+
+  // ------------------------- RENDER -------------------------
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       {/* NAVBAR */}
@@ -232,43 +264,63 @@ export default function AdminPage() {
           </>
         )}
 
-        {/* MEMBERS */}
-        {activeTab === "members" && (
+        {/* MEMBERS / SCANNERS / ADMINS / EVENTS */}
+        {["members", "scanners", "admins"].includes(activeTab) && (
           <section className="bg-slate-800/50 rounded-xl border border-purple-500/20 p-6 backdrop-blur-sm">
             <MembersManagement
-              members={members}
+              members={
+                activeTab === "members"
+                  ? members
+                  : activeTab === "scanners"
+                  ? scanners
+                  : admins
+              }
               org={tempOrg}
               onAddMember={async (m: User) => {
+                if (!authUser) return
                 try {
-                  const res = await fetch(`${API_BASE}/api/users`, {
+                  const res = await fetch(`${API_BASE}/admins/users?actorId=${authUser.id}`, {
                     method: "POST",
+                    credentials: "include",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(m),
+                    body: JSON.stringify({
+                      email: m.email,
+                      password: "TempPassword123!", // Should be changed by user
+                      firstName: m.firstName,
+                      lastName: m.lastName,
+                      role: m.role.toUpperCase(),
+                    }),
                   })
                   const newUser: User = await res.json()
                   setUsers(prev => [...prev, convertUserToAuthUser(newUser)])
                   // Refresh audit logs
-                  const logsRes = await fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
+                  const logsRes = await fetch(`${API_BASE}/admins/audit/logs`, {
+                    credentials: "include",
+                  })
                   const logsData: AuditLog[] = await logsRes.json()
                   setAuditLogs(logsData)
                 } catch (error) {
-                  console.error("Error adding member:", error)
+                  console.error("Error adding user:", error)
                 }
               }}
               onEditMember={async (updated: User) => {
+                if (!authUser) return
                 try {
-                  await fetch(`${API_BASE}/api/users/${updated.id}`, {
+                  await fetch(`${API_BASE}/admins/users/${updated.id}?actorId=${authUser.id}`, {
                     method: "PUT",
+                    credentials: "include",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(updated),
                   })
                   setUsers(prev => prev.map(u => (u.id === updated.id ? convertUserToAuthUser(updated) : u)))
                   // Refresh audit logs
-                  const logsRes = await fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
+                  const logsRes = await fetch(`${API_BASE}/admins/audit/logs`, {
+                    credentials: "include",
+                  })
                   const logsData: AuditLog[] = await logsRes.json()
                   setAuditLogs(logsData)
                 } catch (error) {
-                  console.error("Error updating member:", error)
+                  console.error("Error updating user:", error)
                 }
               }}
               onDeleteMember={handleDeleteUser}
@@ -276,111 +328,40 @@ export default function AdminPage() {
           </section>
         )}
 
-        {/* SCANNERS */}
-        {activeTab === "scanners" && (
-          <section className="bg-slate-800/50 rounded-xl border border-purple-500/20 p-6 backdrop-blur-sm">
-            <MembersManagement
-              members={scanners}
-              org={tempOrg}
-              onAddMember={async (m: User) => {
-                try {
-                  const res = await fetch(`${API_BASE}/api/users`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(m),
-                  })
-                  const newUser: User = await res.json()
-                  setUsers(prev => [...prev, convertUserToAuthUser(newUser)])
-                  // Refresh audit logs
-                  const logsRes = await fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
-                  const logsData: AuditLog[] = await logsRes.json()
-                  setAuditLogs(logsData)
-                } catch (error) {
-                  console.error("Error adding scanner:", error)
-                }
-              }}
-              onEditMember={async (updated: User) => {
-                try {
-                  await fetch(`${API_BASE}/api/users/${updated.id}`, {
-                    method: "PUT",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(updated),
-                  })
-                  setUsers(prev => prev.map(u => (u.id === updated.id ? convertUserToAuthUser(updated) : u)))
-                  // Refresh audit logs
-                  const logsRes = await fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
-                  const logsData: AuditLog[] = await logsRes.json()
-                  setAuditLogs(logsData)
-                } catch (error) {
-                  console.error("Error updating scanner:", error)
-                }
-              }}
-              onDeleteMember={handleDeleteUser}
-            />
-          </section>
-        )}
-
-        {/* ADMINS */}
-        {activeTab === "admins" && (
-          <section className="bg-slate-800/50 rounded-xl border border-purple-500/20 p-6 backdrop-blur-sm">
-            <MembersManagement
-              members={admins}
-              org={tempOrg}
-              onAddMember={async (m: User) => {
-                try {
-                  const res = await fetch(`${API_BASE}/api/users`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(m),
-                  })
-                  const newUser: User = await res.json()
-                  setUsers(prev => [...prev, convertUserToAuthUser(newUser)])
-                  // Refresh audit logs
-                  const logsRes = await fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
-                  const logsData: AuditLog[] = await logsRes.json()
-                  setAuditLogs(logsData)
-                } catch (error) {
-                  console.error("Error adding admin:", error)
-                }
-              }}
-              onEditMember={async (updated: User) => {
-                try {
-                  await fetch(`${API_BASE}/api/users/${updated.id}`, {
-                    method: "PUT",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(updated),
-                  })
-                  setUsers(prev => prev.map(u => (u.id === updated.id ? convertUserToAuthUser(updated) : u)))
-                  // Refresh audit logs
-                  const logsRes = await fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
-                  const logsData: AuditLog[] = await logsRes.json()
-                  setAuditLogs(logsData)
-                } catch (error) {
-                  console.error("Error updating admin:", error)
-                }
-              }}
-              onDeleteMember={handleDeleteUser}
-            />
-          </section>
-        )}
-
-        {/* EVENTS */}
         {activeTab === "events" && (
           <section className="bg-slate-800/50 rounded-xl border border-purple-500/20 p-6 backdrop-blur-sm">
             <EventsManagement
               events={events}
               org={tempOrg}
               onAddEvent={async (e: Event) => {
+                if (!authUser) return
                 try {
-                  const res = await fetch(`${API_BASE}/api/events`, {
+                  // Ensure organization is included in the event payload
+                  const eventPayload = {
+                    ...e,
+                    organization: {
+                      id: authUser.organizationId,
+                    },
+                  }
+                  
+                  const res = await fetch(`${API_BASE}/events`, {
                     method: "POST",
+                    credentials: "include",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(e),
+                    body: JSON.stringify(eventPayload),
                   })
+                  
+                  if (!res.ok) {
+                    const errorText = await res.text()
+                    throw new Error(`Failed to create event: ${errorText}`)
+                  }
+                  
                   const newEvent: Event = await res.json()
                   setEvents(prev => [...prev, newEvent])
                   // Refresh audit logs
-                  const logsRes = await fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
+                  const logsRes = await fetch(`${API_BASE}/admins/audit/logs`, {
+                    credentials: "include",
+                  })
                   const logsData: AuditLog[] = await logsRes.json()
                   setAuditLogs(logsData)
                 } catch (error) {
@@ -389,14 +370,32 @@ export default function AdminPage() {
               }}
               onEditEvent={async (updated: Event) => {
                 try {
-                  await fetch(`${API_BASE}/api/events/${updated.id}`, {
+                  // Ensure organization is included in the update payload
+                  const eventPayload = {
+                    ...updated,
+                    organization: updated.organization || {
+                      id: authUser?.organizationId,
+                    },
+                  }
+                  
+                  const res = await fetch(`${API_BASE}/events/${updated.id}`, {
                     method: "PUT",
+                    credentials: "include",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(updated),
+                    body: JSON.stringify(eventPayload),
                   })
-                  setEvents(prev => prev.map(ev => (ev.id === updated.id ? updated : ev)))
+                  
+                  if (!res.ok) {
+                    const errorText = await res.text()
+                    throw new Error(`Failed to update event: ${errorText}`)
+                  }
+                  
+                  const updatedEventData: Event = await res.json()
+                  setEvents(prev => prev.map(ev => (ev.id === updated.id ? updatedEventData : ev)))
                   // Refresh audit logs
-                  const logsRes = await fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
+                  const logsRes = await fetch(`${API_BASE}/admins/audit/logs`, {
+                    credentials: "include",
+                  })
                   const logsData: AuditLog[] = await logsRes.json()
                   setAuditLogs(logsData)
                 } catch (error) {
