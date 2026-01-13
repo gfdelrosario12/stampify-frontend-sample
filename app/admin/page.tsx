@@ -1,15 +1,45 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { useAuth } from "@/lib/auth-context"
+import { useAuth, Role as AuthRole, User as AuthUser, Org } from "@/lib/auth-context"
 import { useRouter } from "next/navigation"
 import { MembersManagement } from "@/components/members-management"
 import { EventsManagement } from "@/components/events-management"
 import { BarChart3, Users, Calendar, TrendingUp, LogOut, Zap, Loader2 } from "lucide-react"
-import type { Event, User, Role, AuditLog } from "@/lib/types"
+import type { Event, AuditLog, User } from "@/lib/types"
 
 /* ------------------------- API BASE ------------------------- */
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
+
+// Helper function to convert AuthUser to User type for components
+function convertAuthUserToUser(authUser: AuthUser, org: Org): User {
+  return {
+    id: authUser.id,
+    firstName: authUser.firstName,
+    lastName: authUser.lastName,
+    name: `${authUser.firstName} ${authUser.lastName}`,
+    email: authUser.email,
+    role: authUser.role.toLowerCase() as "member" | "scanner" | "admin",
+    organization: org,
+    createdAt: authUser.createdAt,
+    updatedAt: authUser.updatedAt,
+  }
+}
+
+// Helper function to convert User to AuthUser after API response
+function convertUserToAuthUser(user: User): AuthUser {
+  return {
+    id: user.id,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+    role: user.role.toUpperCase() as AuthRole,
+    organizationId: user.organization.id,
+    isActive: true,
+    createdAt: user.createdAt || new Date().toISOString(),
+    updatedAt: user.updatedAt || new Date().toISOString(),
+  }
+}
 
 export default function AdminPage() {
   const { user: authUser, logout } = useAuth()
@@ -17,9 +47,9 @@ export default function AdminPage() {
 
   if (!authUser) return null
 
-  const organizationId = authUser.organization.id
+  const organizationId = authUser.organizationId
 
-  const [users, setUsers] = useState<User[]>([])
+  const [users, setUsers] = useState<AuthUser[]>([])
   const [events, setEvents] = useState<Event[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [loading, setLoading] = useState(true)
@@ -35,7 +65,7 @@ export default function AdminPage() {
           fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
         ])
 
-        const usersData: User[] = await usersRes.json()
+        const usersData: AuthUser[] = await usersRes.json()
         const eventsData: Event[] = await eventsRes.json()
         const logsData: AuditLog[] = await logsRes.json()
 
@@ -84,10 +114,16 @@ export default function AdminPage() {
     router.push("/")
   }
 
-  // Filter users by role
-  const members = useMemo(() => users.filter(u => u.role === "member"), [users])
-  const scanners = useMemo(() => users.filter(u => u.role === "scanner"), [users])
-  const admins = useMemo(() => users.filter(u => u.role === "admin"), [users])
+  // Create a temporary Org object from auth user data
+  const tempOrg: Org = {
+    id: authUser.organizationId,
+    name: "Organization", // This should ideally come from API
+  }
+
+  // Filter users by role and convert to User type for components
+  const members = useMemo(() => users.filter(u => u.role === "MEMBER").map(u => convertAuthUserToUser(u, tempOrg)), [users, tempOrg])
+  const scanners = useMemo(() => users.filter(u => u.role === "SCANNER").map(u => convertAuthUserToUser(u, tempOrg)), [users, tempOrg])
+  const admins = useMemo(() => users.filter(u => u.role === "ADMIN").map(u => convertAuthUserToUser(u, tempOrg)), [users, tempOrg])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
@@ -201,7 +237,7 @@ export default function AdminPage() {
           <section className="bg-slate-800/50 rounded-xl border border-purple-500/20 p-6 backdrop-blur-sm">
             <MembersManagement
               members={members}
-              org={authUser.organization}
+              org={tempOrg}
               onAddMember={async (m: User) => {
                 try {
                   const res = await fetch(`${API_BASE}/api/users`, {
@@ -210,7 +246,7 @@ export default function AdminPage() {
                     body: JSON.stringify(m),
                   })
                   const newUser: User = await res.json()
-                  setUsers(prev => [...prev, newUser])
+                  setUsers(prev => [...prev, convertUserToAuthUser(newUser)])
                   // Refresh audit logs
                   const logsRes = await fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
                   const logsData: AuditLog[] = await logsRes.json()
@@ -226,7 +262,7 @@ export default function AdminPage() {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(updated),
                   })
-                  setUsers(prev => prev.map(u => (u.id === updated.id ? updated : u)))
+                  setUsers(prev => prev.map(u => (u.id === updated.id ? convertUserToAuthUser(updated) : u)))
                   // Refresh audit logs
                   const logsRes = await fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
                   const logsData: AuditLog[] = await logsRes.json()
@@ -245,7 +281,7 @@ export default function AdminPage() {
           <section className="bg-slate-800/50 rounded-xl border border-purple-500/20 p-6 backdrop-blur-sm">
             <MembersManagement
               members={scanners}
-              org={authUser.organization}
+              org={tempOrg}
               onAddMember={async (m: User) => {
                 try {
                   const res = await fetch(`${API_BASE}/api/users`, {
@@ -254,7 +290,7 @@ export default function AdminPage() {
                     body: JSON.stringify(m),
                   })
                   const newUser: User = await res.json()
-                  setUsers(prev => [...prev, newUser])
+                  setUsers(prev => [...prev, convertUserToAuthUser(newUser)])
                   // Refresh audit logs
                   const logsRes = await fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
                   const logsData: AuditLog[] = await logsRes.json()
@@ -270,7 +306,7 @@ export default function AdminPage() {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(updated),
                   })
-                  setUsers(prev => prev.map(u => (u.id === updated.id ? updated : u)))
+                  setUsers(prev => prev.map(u => (u.id === updated.id ? convertUserToAuthUser(updated) : u)))
                   // Refresh audit logs
                   const logsRes = await fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
                   const logsData: AuditLog[] = await logsRes.json()
@@ -289,7 +325,7 @@ export default function AdminPage() {
           <section className="bg-slate-800/50 rounded-xl border border-purple-500/20 p-6 backdrop-blur-sm">
             <MembersManagement
               members={admins}
-              org={authUser.organization}
+              org={tempOrg}
               onAddMember={async (m: User) => {
                 try {
                   const res = await fetch(`${API_BASE}/api/users`, {
@@ -298,7 +334,7 @@ export default function AdminPage() {
                     body: JSON.stringify(m),
                   })
                   const newUser: User = await res.json()
-                  setUsers(prev => [...prev, newUser])
+                  setUsers(prev => [...prev, convertUserToAuthUser(newUser)])
                   // Refresh audit logs
                   const logsRes = await fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
                   const logsData: AuditLog[] = await logsRes.json()
@@ -314,7 +350,7 @@ export default function AdminPage() {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(updated),
                   })
-                  setUsers(prev => prev.map(u => (u.id === updated.id ? updated : u)))
+                  setUsers(prev => prev.map(u => (u.id === updated.id ? convertUserToAuthUser(updated) : u)))
                   // Refresh audit logs
                   const logsRes = await fetch(`${API_BASE}/api/audit-logs?organizationId=${organizationId}`)
                   const logsData: AuditLog[] = await logsRes.json()
@@ -333,7 +369,7 @@ export default function AdminPage() {
           <section className="bg-slate-800/50 rounded-xl border border-purple-500/20 p-6 backdrop-blur-sm">
             <EventsManagement
               events={events}
-              org={authUser.organization}
+              org={tempOrg}
               onAddEvent={async (e: Event) => {
                 try {
                   const res = await fetch(`${API_BASE}/api/events`, {

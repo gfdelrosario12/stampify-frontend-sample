@@ -1,10 +1,10 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect } from "react";
-import axios from "axios";
+import { useRouter } from "next/navigation";
 
 // ---------------- TYPES ----------------
-export type Role = "member" | "scanner" | "admin";
+export type Role = "ADMIN" | "MEMBER" | "SCANNER";
 
 export interface Org {
   id: number;
@@ -16,71 +16,130 @@ export interface User {
   id: number;
   firstName: string;
   lastName: string;
-  name: string; // convenience full name
   email: string;
   role: Role;
-  organization: Org;
-  avatar?: string;
+  organizationId: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ---------------- CONTEXT ----------------
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<{ success: boolean; user?: User; error?: string }>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  isLoading: boolean;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
 const AuthContext = createContext<AuthContextType | null>(null);
 
 // ---------------- PROVIDER ----------------
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const router = useRouter();
 
   // LOGIN
   const login = async (email: string, password: string) => {
     try {
-      const res = await axios.post(
-        `${API_BASE}/users/login`,
-        { email, password },
-        { withCredentials: true }
-      );
-      setUser(res.data);
-      return true;
+      const res = await fetch(`${API_BASE}/users/login`, {
+        method: "POST",
+        credentials: "include", // Important: sends and receives cookies
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!res.ok) {
+        return { success: false, error: "Invalid credentials" };
+      }
+
+      const userData: User = await res.json();
+      setUser(userData);
+
+      // Route based on role
+      const roleRoutes: Record<Role, string> = {
+        ADMIN: "/admin",
+        MEMBER: "/member",
+        SCANNER: "/scanner",
+      };
+
+      const route = roleRoutes[userData.role] || "/";
+      router.push(route);
+
+      return { success: true, user: userData };
     } catch (err) {
       console.error("Login failed", err);
-      return false;
+      return { success: false, error: "Login failed. Please try again." };
     }
   };
 
   // LOGOUT
   const logout = async () => {
     try {
-      await axios.post(`${API_BASE}/users/logout`, {}, { withCredentials: true });
+      await fetch(`${API_BASE}/users/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
     } catch (err) {
       console.warn("Logout failed", err);
     } finally {
       setUser(null);
+      router.push("/");
     }
   };
 
-  // REFRESH
+  // REFRESH USER (from cookie)
   const refreshUser = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/users/me`, { withCredentials: true });
-      setUser(res.data);
-    } catch {
+      // Log cookies for debugging
+      console.log("🍪 All cookies:", document.cookie);
+      
+      const res = await fetch(`${API_BASE}/users/me`, {
+        credentials: "include", // Sends cookie
+      });
+
+      if (res.ok) {
+        const userData: User = await res.json();
+        console.log("✅ User authenticated from cookie:", userData);
+        setUser(userData);
+        
+        // Route to appropriate page based on role
+        const currentPath = window.location.pathname;
+        const roleRoutes: Record<Role, string> = {
+          ADMIN: "/admin",
+          MEMBER: "/member",
+          SCANNER: "/scanner",
+        };
+        
+        const targetRoute = roleRoutes[userData.role];
+        
+        // Only redirect if we're on the home page or login page
+        if (currentPath === "/" && targetRoute) {
+          console.log(`🔀 Redirecting ${userData.role} to ${targetRoute}`);
+          router.push(targetRoute);
+        }
+      } else {
+        console.log("❌ No valid session cookie found");
+        setUser(null);
+      }
+    } catch (err) {
+      console.error("Failed to refresh user", err);
       setUser(null);
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  // Check authentication on mount
   useEffect(() => {
     refreshUser();
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, login, logout, refreshUser, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

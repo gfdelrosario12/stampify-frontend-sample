@@ -12,7 +12,7 @@ interface LoginModalProps {
 }
 
 export default function LoginModal({ isOpen, onClose, isRegister, onToggleMode }: LoginModalProps) {
-  const auth = useAuth();
+  const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -40,13 +40,24 @@ export default function LoginModal({ isOpen, onClose, isRegister, onToggleMode }
     try {
       if (!isRegister) {
         // LOGIN
-        const successLogin = await auth.login(email, password);
-        if (successLogin) onClose();
-        else setError("Invalid credentials");
+        const result = await login(email, password);
+        if (result.success) {
+          onClose(); // Close modal on successful login
+        } else {
+          setError(result.error || "Invalid credentials");
+        }
       } else {
         // REGISTER
         if (!firstName || !lastName) {
           setError("First and last name are required for registration");
+          setLoading(false);
+          return;
+        }
+
+        // Password validation
+        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/;
+        if (!passwordRegex.test(password)) {
+          setError("Password must contain at least 8 characters, one uppercase letter, one lowercase letter, one number, and one special character");
           setLoading(false);
           return;
         }
@@ -66,31 +77,50 @@ export default function LoginModal({ isOpen, onClose, isRegister, onToggleMode }
             password,
             firstName,
             lastName,
-            role: "member",
+            role: "MEMBER", // Default role for self-registration
           }),
         });
 
         if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.message || "Registration failed");
+          const errorText = await res.text();
+          let errorMessage = "Registration failed";
+          
+          try {
+            const errorData = JSON.parse(errorText);
+            errorMessage = errorData.message || errorMessage;
+          } catch {
+            errorMessage = `Registration failed: ${res.statusText}`;
+          }
+          
+          setError(errorMessage);
+          setLoading(false);
+          return;
         }
 
-        const data = await res.json();
+        const userData = await res.json();
 
         // Show success message
-        setSuccess(`Account created successfully! Your username is ${data.email}`);
+        setSuccess(`Account created successfully for ${email}! Please log in with your credentials.`);
         setError(null);
         setLoading(false);
 
-        // Auto-switch to login after 3 seconds
+        // Clear form fields
+        setFirstName("");
+        setLastName("");
+        setEmail("");
+        setPassword("");
+        setConfirmPassword("");
+
+        // Auto-switch to login after 2 seconds
         setTimeout(() => {
           onToggleMode();
           setSuccess(null);
-        }, 3000);
+        }, 2000);
       }
     } catch (err: any) {
       console.error(err);
       setError(err?.message || "Something went wrong");
+    } finally {
       setLoading(false);
     }
   };
@@ -143,6 +173,7 @@ export default function LoginModal({ isOpen, onClose, isRegister, onToggleMode }
             className="bg-slate-800/70 text-white border border-purple-500/30 p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
             required
           />
+          
           <div className="relative">
             <input
               type={showPassword ? "text" : "password"}
@@ -187,9 +218,9 @@ export default function LoginModal({ isOpen, onClose, isRegister, onToggleMode }
           <button
             type="submit"
             disabled={loading}
-            className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition flex items-center justify-center gap-2"
+            className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isRegister ? "Register" : "Login"}
+            {loading ? "Processing..." : isRegister ? "Register" : "Login"}
             <ArrowRight className="w-5 h-5" />
           </button>
         </form>
