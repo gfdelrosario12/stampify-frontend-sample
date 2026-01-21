@@ -106,9 +106,14 @@ export default function ScannerPage() {
   }
 
   /* Logout */
-  const handleLogout = () => {
-    logout()
-    router.push("/")
+  const handleLogout = async () => {
+    try {
+      await logout()
+      router.push("/")
+    } catch (error) {
+      console.error("Logout error:", error)
+      router.push("/")
+    }
   }
 
   /* Stats calculations */

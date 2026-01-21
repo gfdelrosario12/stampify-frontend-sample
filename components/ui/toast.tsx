@@ -4,6 +4,9 @@ import * as React from 'react'
 import * as ToastPrimitives from '@radix-ui/react-toast'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { X } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 import { cn } from '@/lib/utils'
 
@@ -126,4 +129,94 @@ export {
   ToastDescription,
   ToastClose,
   ToastAction,
+}
+
+// Toast notification component for success/error messages
+
+export type ToastType = 'success' | 'error' | 'info'
+
+interface CustomToastProps {
+  message: string
+  type: ToastType
+  onClose: () => void
+  duration?: number
+}
+
+export function CustomToast({
+  message,
+  type,
+  onClose,
+  duration = 3000,
+}: CustomToastProps) {
+  const [isVisible, setIsVisible] = useState(true)
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsVisible(false)
+      setTimeout(onClose, 300) // Wait for fade out animation
+    }, duration)
+
+    return () => clearTimeout(timer)
+  }, [duration, onClose])
+
+  const icons = {
+    success: <CheckCircle className="w-5 h-5" />,
+    error: <XCircle className="w-5 h-5" />,
+    info: <AlertCircle className="w-5 h-5" />,
+  }
+
+  const colors = {
+    success: 'bg-green-500/90 text-white border-green-400',
+    error: 'bg-red-500/90 text-white border-red-400',
+    info: 'bg-blue-500/90 text-white border-blue-400',
+  }
+
+  if (typeof window === 'undefined') return null
+
+  return createPortal(
+    <div
+      className={`fixed top-4 right-4 z-[200] transition-all duration-300 ${
+        isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'
+      }`}
+    >
+      <div
+        className={`${colors[type]} border-2 rounded-lg px-4 py-3 shadow-2xl backdrop-blur-sm flex items-center gap-3 min-w-[300px] max-w-md`}
+      >
+        {icons[type]}
+        <p className="flex-1 font-medium">{message}</p>
+        <button
+          onClick={() => {
+            setIsVisible(false)
+            setTimeout(onClose, 300)
+          }}
+          className="hover:opacity-70 transition-opacity"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+// Toast manager hook
+export function useToast() {
+  const [toasts, setToasts] = useState<
+    Array<{ id: string; message: string; type: ToastType }>
+  >([])
+
+  const showToast = (message: string, type: ToastType = 'info') => {
+    const id = Date.now().toString()
+    setToasts(prev => [...prev, { id, message, type }])
+  }
+
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id))
+  }
+
+  return {
+    showToast,
+    toasts,
+    removeToast,
+  }
 }

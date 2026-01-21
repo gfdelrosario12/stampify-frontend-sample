@@ -52,6 +52,7 @@ export function EventsManagement({ events, org, onAddEvent, onEditEvent, onDelet
   const [venueFile, setVenueFile] = useState<File | null>(null)
   const [venuePreview, setVenuePreview] = useState<string>("")
   const [uploading, setUploading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
 
   // Event type options
   const eventTypeOptions = [
@@ -66,7 +67,7 @@ export function EventsManagement({ events, org, onAddEvent, onEditEvent, onDelet
     "Other"
   ]
 
-  const handleOpenAdd = () => {
+  const resetForm = () => {
     setEditingEvent(null)
     setEventName("")
     setEventDescription("")
@@ -74,24 +75,50 @@ export function EventsManagement({ events, org, onAddEvent, onEditEvent, onDelet
     setVenueName("")
     setScheduledAt("")
     setBadgeFile(null)
-    setBadgePreview("")
     setVenueFile(null)
+    setBadgePreview("")
     setVenuePreview("")
+  }
+
+  const handleOpenAdd = () => {
+    resetForm()
     setShowModal(true)
   }
 
-  const handleOpenEdit = (event: Event) => {
-    setEditingEvent(event)
-    setEventName(event.eventName)
-    setEventDescription(event.eventDescription || "")
-    setEventType(event.eventType || "")
-    setVenueName(event.venueName || "")
-    setScheduledAt(event.scheduledAt || "")
-    setBadgePreview(event.eventBadge || "")
-    setVenuePreview(event.venueImageUrl || "")
-    setBadgeFile(null)
-    setVenueFile(null)
-    setShowModal(true)
+  const handleOpenEdit = async (eventId: number) => {
+    setUploading(true)
+    try {
+      const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080"
+      
+      // Fetch event data from dedicated edit endpoint
+      const res = await fetch(`${API_BASE}/events/${eventId}/edit`, {
+        credentials: "include",
+      })
+
+      if (!res.ok) {
+        const errorText = await res.text()
+        throw new Error(`Failed to fetch event for edit: ${errorText}`)
+      }
+
+      const eventData: Event = await res.json()
+
+      setEditingEvent(eventData)
+      setEventName(eventData.eventName)
+      setEventDescription(eventData.eventDescription || "")
+      setEventType(eventData.eventType || "")
+      setVenueName(eventData.venueName || "")
+      setScheduledAt(eventData.scheduledAt || "")
+      setBadgePreview(eventData.eventBadge || "")
+      setVenuePreview(eventData.venueImageUrl || "")
+      setBadgeFile(null)
+      setVenueFile(null)
+      setShowModal(true)
+    } catch (error) {
+      console.error("Error fetching event for edit:", error)
+      alert(`Failed to load event data: ${error instanceof Error ? error.message : "Unknown error"}`)
+    } finally {
+      setUploading(false)
+    }
   }
 
   const handleBadgeFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -119,42 +146,23 @@ export function EventsManagement({ events, org, onAddEvent, onEditEvent, onDelet
   }
 
   const handleSubmit = async () => {
-    if (!eventName.trim()) {
-      alert("Event name is required")
+    if (!eventName.trim() || !venueName.trim() || !scheduledAt || !eventType.trim()) {
+      alert("Please fill in all required fields")
       return
     }
 
-    setUploading(true)
-    
+    setSubmitting(true)
     try {
-      const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080"
-      
-      // Upload files to S3 if new files are selected
-      let eventBadgeUrl = editingEvent?.eventBadge || ""
-      let venueImageUrl = editingEvent?.venueImageUrl || ""
-
-      // Upload event badge first if selected
-      if (badgeFile) {
-        const badgeData = await uploadFile(badgeFile, `${API_BASE}/upload/event-badge`)
-        eventBadgeUrl = badgeData.eventBadgeUrl
-      }
-
-      // Upload venue image if selected
-      if (venueFile) {
-        const venueData = await uploadFile(venueFile, `${API_BASE}/upload/venue-image`)
-        venueImageUrl = venueData.venueImageUrl
-      }
-
       const eventData: Event = {
         id: editingEvent?.id || 0,
-        organization: org,
         eventName: eventName.trim(),
         eventDescription: eventDescription.trim(),
         eventType: eventType.trim(),
-        eventBadge: eventBadgeUrl,
         venueName: venueName.trim(),
-        venueImageUrl: venueImageUrl,
-        scheduledAt: scheduledAt || undefined,
+        scheduledAt: scheduledAt,
+        eventBadge: badgePreview || editingEvent?.eventBadge || "",
+        venueImageUrl: venuePreview || editingEvent?.venueImageUrl || "",
+        organization: org,
       }
 
       if (editingEvent) {
@@ -162,13 +170,13 @@ export function EventsManagement({ events, org, onAddEvent, onEditEvent, onDelet
       } else {
         await onAddEvent(eventData)
       }
-
+      
       setShowModal(false)
+      resetForm()
     } catch (error) {
-      console.error('Error submitting event:', error)
-      alert('Failed to save event. Please try again.')
+      console.error("Error submitting event:", error)
     } finally {
-      setUploading(false)
+      setSubmitting(false)
     }
   }
 
@@ -248,11 +256,18 @@ export function EventsManagement({ events, org, onAddEvent, onEditEvent, onDelet
               {/* Action Buttons */}
               <div className="flex gap-2 pt-2 border-t border-purple-500/20">
                 <button
-                  onClick={() => handleOpenEdit(event)}
-                  className="flex-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 px-3 py-2 rounded-lg flex items-center justify-center gap-2 text-sm transition-colors"
+                  onClick={() => handleOpenEdit(event.id)}
+                  disabled={uploading}
+                  className="flex-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 px-3 py-2 rounded-lg flex items-center justify-center gap-2 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Edit className="w-4 h-4" />
-                  Edit
+                  {uploading ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-300 border-t-transparent"></div>
+                  ) : (
+                    <>
+                      <Edit className="w-4 h-4" />
+                      Edit
+                    </>
+                  )}
                 </button>
                 <button
                   onClick={() => {
@@ -431,24 +446,27 @@ export function EventsManagement({ events, org, onAddEvent, onEditEvent, onDelet
                 </div>
               </div>
 
-              {/* Footer */}
-              <div className="p-4 sm:p-6 border-t border-purple-500/20 flex flex-col sm:flex-row gap-3 bg-slate-900 rounded-b-xl">
+              {/* Footer - Update buttons with loading states */}
+              <div className="p-6 border-t border-purple-500/20 flex gap-3 bg-slate-900 rounded-b-xl">
                 <button
-                  onClick={() => setShowModal(false)}
-                  disabled={uploading}
-                  className="w-full sm:flex-1 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base font-medium"
+                  onClick={() => {
+                    setShowModal(false)
+                    resetForm()
+                  }}
+                  disabled={submitting || uploading}
+                  className="flex-1 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSubmit}
-                  disabled={uploading}
-                  className="w-full sm:flex-1 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm sm:text-base font-medium"
+                  disabled={submitting || uploading}
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center gap-2"
                 >
-                  {uploading ? (
+                  {submitting ? (
                     <>
                       <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                      Uploading...
+                      Saving...
                     </>
                   ) : (
                     editingEvent ? "Update Event" : "Create Event"

@@ -177,9 +177,14 @@ export default function MemberDashboard() {
 
   const completionRate = Math.round((stamps.length / events.length) * 100)
 
-  const handleLogout = () => {
-    logout()
-    router.push("/")
+  const handleLogout = async () => {
+    try {
+      await logout()
+      router.push("/")
+    } catch (error) {
+      console.error("Logout error:", error)
+      router.push("/")
+    }
   }
 
   return (

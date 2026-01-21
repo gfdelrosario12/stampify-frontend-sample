@@ -79,14 +79,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // LOGOUT
   const logout = async () => {
     try {
-      await fetch(`${API_BASE}/users/logout`, {
+      // Call backend logout endpoint to clear HTTP-only cookie
+      const res = await fetch(`${API_BASE}/users/logout`, {
         method: "POST",
-        credentials: "include",
+        credentials: "include", // Important: sends cookie to be cleared
       });
+
+      if (!res.ok) {
+        console.warn("Logout endpoint failed, but clearing local state");
+      }
     } catch (err) {
-      console.warn("Logout failed", err);
+      console.error("Logout request failed:", err);
     } finally {
+      // Always clear local state and redirect, even if backend call fails
       setUser(null);
+      
+      // Clear any local storage (if applicable)
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('user');
+        sessionStorage.clear();
+      }
+      
       router.push("/");
     }
   };

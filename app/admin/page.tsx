@@ -5,8 +5,10 @@ import { useAuth, Role as AuthRole, User as AuthUser, Org } from "@/lib/auth-con
 import { useRouter } from "next/navigation"
 import { MembersManagement } from "@/components/members-management"
 import { EventsManagement } from "@/components/events-management"
-import { BarChart3, Users, Calendar, TrendingUp, LogOut, Zap, Loader2 } from "lucide-react"
+import { BarChart3, Users, Calendar, TrendingUp, LogOut, Zap, Loader2, CheckCircle, XCircle } from "lucide-react"
 import type { Event, AuditLog, User } from "@/lib/types"
+import { LoadingOverlay } from "@/components/ui/loading"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 
 /* ------------------------- API BASE ------------------------- */
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080"
@@ -27,14 +29,14 @@ function convertAuthUserToUser(authUser: AuthUser, org: Org): User {
 }
 
 // Helper function to convert User to AuthUser after API response
-function convertUserToAuthUser(user: User): AuthUser {
+function convertUserToAuthUser(user: User, defaultOrgId: number): AuthUser {
   return {
     id: user.id,
     firstName: user.firstName,
     lastName: user.lastName,
     email: user.email,
     role: user.role.toUpperCase() as AuthRole,
-    organizationId: user.organization.id,
+    organizationId: user.organization?.id || defaultOrgId,
     isActive: true,
     createdAt: user.createdAt || new Date().toISOString(),
     updatedAt: user.updatedAt || new Date().toISOString(),
@@ -50,7 +52,16 @@ export default function AdminPage() {
   const [events, setEvents] = useState<Event[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [loading, setLoading] = useState(true)
+  const [pageLoading, setPageLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<"overview" | "members" | "scanners" | "admins" | "events">("overview")
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; type: "user" | "event"; id: number; name: string } | null>(null)
+  const [notification, setNotification] = useState<{ message: string; type: "success" | "error" } | null>(null)
+
+  // Show notification helper
+  const showNotification = (message: string, type: "success" | "error") => {
+    setNotification({ message, type })
+    setTimeout(() => setNotification(null), 3000)
+  }
 
   // Get organizationId safely
   const organizationId = authUser?.organizationId
@@ -95,45 +106,90 @@ export default function AdminPage() {
 
   // ------------------------- HANDLERS -------------------------
   const handleDeleteUser = async (userId: number) => {
-    if (!authUser) return
+    if (!authUser) {
+      showNotification("You must be logged in to perform this action", "error")
+      return
+    }
+    
+    setPageLoading(true)
     try {
-      await fetch(`${API_BASE}/admins/users/${userId}?actorId=${authUser.id}`, {
+      const res = await fetch(`${API_BASE}/admins/users/${userId}?actorId=${authUser.id}`, {
         method: "DELETE",
         credentials: "include",
       })
+      
+      if (!res.ok) {
+        const errorText = await res.text()
+        throw new Error(`Failed to delete user: ${errorText}`)
+      }
+      
       setUsers(users.filter(u => u.id !== userId))
+      
       // Refresh audit logs
       const logsRes = await fetch(`${API_BASE}/admins/audit/logs`, {
         credentials: "include",
       })
       const logsData: AuditLog[] = await logsRes.json()
       setAuditLogs(logsData)
+      
+      showNotification("User deleted successfully!", "success")
     } catch (error) {
       console.error("Error deleting user:", error)
+      showNotification(error instanceof Error ? error.message : "Failed to delete user", "error")
+    } finally {
+      setPageLoading(false)
+      setDeleteConfirm(null)
     }
   }
 
   const handleDeleteEvent = async (eventId: number) => {
+    if (!authUser) {
+      showNotification("You must be logged in to perform this action", "error")
+      return
+    }
+    
+    setPageLoading(true)
     try {
-      await fetch(`${API_BASE}/events/${eventId}`, {
+      console.log('Deleting event ID:', eventId)
+      
+      // DELETE /api/events/{id} (no actorId - backend doesn't use it for delete)
+      const res = await fetch(`${API_BASE}/events/${eventId}`, {
         method: "DELETE",
         credentials: "include",
       })
+      
+      if (!res.ok) {
+        const errorText = await res.text()
+        throw new Error(`Failed to delete event: ${errorText}`)
+      }
+      
       setEvents(events.filter(e => e.id !== eventId))
+      
       // Refresh audit logs
       const logsRes = await fetch(`${API_BASE}/admins/audit/logs`, {
         credentials: "include",
       })
       const logsData: AuditLog[] = await logsRes.json()
       setAuditLogs(logsData)
+      
+      showNotification("Event deleted successfully!", "success")
     } catch (error) {
       console.error("Error deleting event:", error)
+      showNotification(error instanceof Error ? error.message : "Failed to delete event", "error")
+    } finally {
+      setPageLoading(false)
+      setDeleteConfirm(null)
     }
   }
 
-  const handleLogout = () => {
-    logout()
-    router.push("/")
+  const handleLogout = async () => {
+    try {
+      await logout()
+      router.push("/")
+    } catch (error) {
+      console.error("Logout error:", error)
+      router.push("/")
+    }
   }
 
   // Temporary Org object
@@ -159,6 +215,49 @@ export default function AdminPage() {
   // ------------------------- RENDER -------------------------
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+      {/* Loading Overlay */}
+      {pageLoading && <LoadingOverlay message="Processing..." />}
+
+      {/* Notification Toast */}
+      {notification && (
+        <div className="fixed top-4 right-4 z-[200] animate-in slide-in-from-top">
+          <div
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl backdrop-blur-sm border-2 min-w-[300px] ${
+              notification.type === "success"
+                ? "bg-green-500/90 border-green-400 text-white"
+                : "bg-red-500/90 border-red-400 text-white"
+            }`}
+          >
+            {notification.type === "success" ? (
+              <CheckCircle className="w-5 h-5" />
+            ) : (
+              <XCircle className="w-5 h-5" />
+            )}
+            <p className="flex-1 font-medium">{notification.message}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteConfirm && (
+        <ConfirmDialog
+          isOpen={deleteConfirm.isOpen}
+          onClose={() => setDeleteConfirm(null)}
+          onConfirm={() => {
+            if (deleteConfirm.type === "user") {
+              handleDeleteUser(deleteConfirm.id)
+            } else {
+              handleDeleteEvent(deleteConfirm.id)
+            }
+          }}
+          title={`Delete ${deleteConfirm.type === "user" ? "User" : "Event"}`}
+          message={`Are you sure you want to delete "${deleteConfirm.name}"? This action cannot be undone.`}
+          confirmText="Delete"
+          isDestructive={true}
+          isLoading={pageLoading}
+        />
+      )}
+
       {/* NAVBAR */}
       <header className="border-b border-purple-500/20 bg-slate-900/80 backdrop-blur-lg sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -277,53 +376,118 @@ export default function AdminPage() {
               }
               org={tempOrg}
               onAddMember={async (m: User) => {
-                if (!authUser) return
+                if (!authUser) {
+                  showNotification("You must be logged in to perform this action", "error")
+                  return
+                }
+                
+                setPageLoading(true)
                 try {
+                  // Map User to RegisterUserRequest format expected by backend
+                  const requestPayload = {
+                    email: m.email,
+                    password: "TempPassword123!", // Should be changed by user
+                    firstName: m.firstName,
+                    lastName: m.lastName,
+                    role: m.role.toUpperCase(),
+                    organizationId: authUser.organizationId,
+                  }
+                  
+                  console.log('Creating user with actorId:', authUser.id)
+                  console.log('Request payload:', requestPayload)
+                  
                   const res = await fetch(`${API_BASE}/admins/users?actorId=${authUser.id}`, {
                     method: "POST",
                     credentials: "include",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      email: m.email,
-                      password: "TempPassword123!", // Should be changed by user
-                      firstName: m.firstName,
-                      lastName: m.lastName,
-                      role: m.role.toUpperCase(),
-                    }),
+                    body: JSON.stringify(requestPayload),
                   })
+                  
+                  if (!res.ok) {
+                    const errorText = await res.text()
+                    throw new Error(`Failed to create user: ${errorText}`)
+                  }
+                  
                   const newUser: User = await res.json()
-                  setUsers(prev => [...prev, convertUserToAuthUser(newUser)])
+                  setUsers(prev => [...prev, convertUserToAuthUser(newUser, authUser.organizationId)])
+                  
                   // Refresh audit logs
                   const logsRes = await fetch(`${API_BASE}/admins/audit/logs`, {
                     credentials: "include",
                   })
                   const logsData: AuditLog[] = await logsRes.json()
                   setAuditLogs(logsData)
+                  
+                  showNotification("User created successfully!", "success")
                 } catch (error) {
                   console.error("Error adding user:", error)
+                  showNotification(error instanceof Error ? error.message : "Failed to create user", "error")
+                } finally {
+                  setPageLoading(false)
                 }
               }}
               onEditMember={async (updated: User) => {
-                if (!authUser) return
+                if (!authUser) {
+                  showNotification("You must be logged in to perform this action", "error")
+                  return
+                }
+                
+                setPageLoading(true)
                 try {
-                  await fetch(`${API_BASE}/admins/users/${updated.id}?actorId=${authUser.id}`, {
+                  // Map User to RegisterUserRequest format expected by backend
+                  const requestPayload = {
+                    email: updated.email,
+                    firstName: updated.firstName,
+                    lastName: updated.lastName,
+                    role: updated.role.toUpperCase(),
+                    organizationId: updated.organization?.id || authUser.organizationId,
+                  }
+                  
+                  console.log('Updating user with actorId:', authUser.id)
+                  console.log('User ID to update:', updated.id)
+                  console.log('Request payload:', requestPayload)
+                  
+                  const res = await fetch(`${API_BASE}/admins/users/${updated.id}?actorId=${authUser.id}`, {
                     method: "PUT",
                     credentials: "include",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(updated),
+                    body: JSON.stringify(requestPayload),
                   })
-                  setUsers(prev => prev.map(u => (u.id === updated.id ? convertUserToAuthUser(updated) : u)))
+                  
+                  if (!res.ok) {
+                    const errorText = await res.text()
+                    throw new Error(`Failed to update user: ${errorText}`)
+                  }
+                  
+                  const updatedUser: User = await res.json()
+                  setUsers(prev => prev.map(u => (u.id === updated.id ? convertUserToAuthUser(updatedUser, authUser.organizationId) : u)))
+                  
                   // Refresh audit logs
                   const logsRes = await fetch(`${API_BASE}/admins/audit/logs`, {
                     credentials: "include",
                   })
                   const logsData: AuditLog[] = await logsRes.json()
                   setAuditLogs(logsData)
+                  
+                  showNotification("User updated successfully!", "success")
                 } catch (error) {
                   console.error("Error updating user:", error)
+                  showNotification(error instanceof Error ? error.message : "Failed to update user", "error")
+                } finally {
+                  setPageLoading(false)
                 }
               }}
-              onDeleteMember={handleDeleteUser}
+              onDeleteMember={async (userId) => {
+                const userToDelete = users.find(u => u.id === userId)
+                if (userToDelete) {
+                  setDeleteConfirm({
+                    isOpen: true,
+                    type: "user",
+                    id: userId,
+                    name: `${userToDelete.firstName} ${userToDelete.lastName}`
+                  })
+                }
+              }}
             />
           </section>
         )}
@@ -334,7 +498,12 @@ export default function AdminPage() {
               events={events}
               org={tempOrg}
               onAddEvent={async (e: Event) => {
-                if (!authUser) return
+                if (!authUser) {
+                  showNotification("You must be logged in to perform this action", "error")
+                  return
+                }
+                
+                setPageLoading(true)
                 try {
                   // Ensure organization is included in the event payload
                   const eventPayload = {
@@ -344,6 +513,10 @@ export default function AdminPage() {
                     },
                   }
                   
+                  console.log('Creating event')
+                  console.log('Event payload:', eventPayload)
+                  
+                  // POST /api/events (no actorId - backend doesn't use it for create)
                   const res = await fetch(`${API_BASE}/events`, {
                     method: "POST",
                     credentials: "include",
@@ -358,31 +531,50 @@ export default function AdminPage() {
                   
                   const newEvent: Event = await res.json()
                   setEvents(prev => [...prev, newEvent])
+                  
                   // Refresh audit logs
                   const logsRes = await fetch(`${API_BASE}/admins/audit/logs`, {
                     credentials: "include",
                   })
                   const logsData: AuditLog[] = await logsRes.json()
                   setAuditLogs(logsData)
+                  
+                  showNotification("Event created successfully!", "success")
                 } catch (error) {
                   console.error("Error adding event:", error)
+                  showNotification(error instanceof Error ? error.message : "Failed to create event", "error")
+                } finally {
+                  setPageLoading(false)
                 }
               }}
               onEditEvent={async (updated: Event) => {
+                if (!authUser) {
+                  showNotification("You must be logged in to perform this action", "error")
+                  return
+                }
+                
+                setPageLoading(true)
                 try {
-                  // Ensure organization is included in the update payload
-                  const eventPayload = {
-                    ...updated,
-                    organization: updated.organization || {
-                      id: authUser?.organizationId,
-                    },
+                  // Map Event to EventRequest format expected by backend
+                  const requestPayload = {
+                    title: updated.eventName,
+                    description: updated.eventDescription || "",
+                    eventType: updated.eventType || "",
+                    venue: updated.venueName || "",
+                    eventDate: updated.scheduledAt || null,
+                    organizationId: updated.organization?.id || authUser.organizationId,
                   }
                   
-                  const res = await fetch(`${API_BASE}/events/${updated.id}`, {
+                  console.log('Updating event with actorId:', authUser.id)
+                  console.log('Event ID to update:', updated.id)
+                  console.log('Request payload:', requestPayload)
+                  
+                  // PUT /api/events/{id}?actorId={actorId}
+                  const res = await fetch(`${API_BASE}/events/${updated.id}?actorId=${authUser.id}`, {
                     method: "PUT",
                     credentials: "include",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(eventPayload),
+                    body: JSON.stringify(requestPayload),
                   })
                   
                   if (!res.ok) {
@@ -392,17 +584,33 @@ export default function AdminPage() {
                   
                   const updatedEventData: Event = await res.json()
                   setEvents(prev => prev.map(ev => (ev.id === updated.id ? updatedEventData : ev)))
+                  
                   // Refresh audit logs
                   const logsRes = await fetch(`${API_BASE}/admins/audit/logs`, {
                     credentials: "include",
                   })
                   const logsData: AuditLog[] = await logsRes.json()
                   setAuditLogs(logsData)
+                  
+                  showNotification("Event updated successfully!", "success")
                 } catch (error) {
                   console.error("Error updating event:", error)
+                  showNotification(error instanceof Error ? error.message : "Failed to update event", "error")
+                } finally {
+                  setPageLoading(false)
                 }
               }}
-              onDeleteEvent={handleDeleteEvent}
+              onDeleteEvent={async (eventId) => {
+                const eventToDelete = events.find(e => e.id === eventId)
+                if (eventToDelete) {
+                  setDeleteConfirm({
+                    isOpen: true,
+                    type: "event",
+                    id: eventId,
+                    name: eventToDelete.eventName
+                  })
+                }
+              }}
             />
           </section>
         )}
