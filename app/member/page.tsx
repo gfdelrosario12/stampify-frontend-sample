@@ -7,7 +7,7 @@ import { Zap, QrCode, Award, Check, Calendar, Star, TrendingUp, LogOut } from "l
 import type { User, Stamp as StampType } from "@/lib/types"
 
 /* ------------------------- API BASE ------------------------- */
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000" // <-- set in .env
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api" // <-- set in .env
 
 /* ------------------------- TYPES ------------------------- */
 
@@ -51,17 +51,25 @@ const DigitalIDCard: React.FC<DigitalIDCardProps> = ({ user, stamps, events, fli
 
           <div className="flex items-center gap-6 mb-6">
             <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center text-5xl shadow-lg ring-4 ring-white/30">
-              {user.avatar || user.name.charAt(0)}
+              {user.avatar || `${user.firstName?.charAt(0) || ''}${user.lastName?.charAt(0) || ''}`}
             </div>
             <div className="text-white flex-1">
-              <h3 className="text-2xl font-bold mb-1">{user.name}</h3>
+              <h3 className="text-2xl font-bold mb-1">{user.firstName} {user.lastName}</h3>
               <p className="text-purple-100 text-sm">{user.email}</p>
               <p className="text-purple-200 text-xs mt-2 font-mono bg-white/10 px-2 py-1 rounded inline-block">{user.id}</p>
             </div>
           </div>
 
-          <div className="bg-white rounded-xl p-4 flex items-center justify-center shadow-inner">
-            <QrCode className="w-32 h-32 text-purple-600" />
+          <div className="bg-white rounded-xl p-6 flex items-center justify-center shadow-inner">
+            {(user as any).qrCodeUrl ? (
+              <img 
+                src={(user as any).qrCodeUrl} 
+                alt="Member QR Code" 
+                className="w-40 h-40 object-contain"
+              />
+            ) : (
+              <QrCode className="w-40 h-40 text-purple-600" />
+            )}
           </div>
 
           <p className="text-center mt-4 text-purple-100 text-sm font-medium">Tap to view your stamps →</p>
@@ -151,20 +159,81 @@ export default function MemberDashboard() {
 
     const fetchData = async () => {
       try {
-        // Fetch user info
-        const userRes = await fetch(`${API_BASE}/users/${authUser.id}`)
+        // Fetch user info from /me endpoint
+        console.log('🔄 Fetching /me endpoint...')
+        const userRes = await fetch(`${API_BASE}/users/me`, {
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        })
+        
+        console.log('📊 /me Response Status:', userRes.status)
+        console.log('📊 /me Response OK:', userRes.ok)
+        
+        if (!userRes.ok) {
+          console.error("❌ Failed to fetch user data:", userRes.status, userRes.statusText)
+          return
+        }
+        
         const userData: User = await userRes.json()
+        console.log('✅ /me Response Data:', userData)
+        console.log('════════════════════════════════════════')
+        console.log('� USER DETAILS:')
+        console.log('  ID:', userData.id)
+        console.log('  First Name:', userData.firstName)
+        console.log('  Last Name:', userData.lastName)
+        console.log('  Email:', userData.email)
+        console.log('  Role:', userData.role)
+        console.log('  Active:', (userData as any).active)
+        console.log('  Password Changed At:', (userData as any).passwordChangedAt)
+        console.log('  Created At:', (userData as any).createdAt)
+        console.log('  Updated At:', (userData as any).updatedAt)
+        console.log('📋 ORGANIZATION:')
+        console.log('  Organization Object:', userData.organization)
+        console.log('  Organization ID:', userData.organization?.id)
+        console.log('  Organization Name:', userData.organization?.name)
+        console.log('📋 MEMBER-SPECIFIC (if applicable):')
+        console.log('  Member Code:', (userData as any).memberCode)
+        console.log('  QR Code URL:', (userData as any).qrCodeUrl)
+        console.log('  Passport Count:', (userData as any).passportCount)
+        console.log('════════════════════════════════════════')
+        
         setUser(userData)
 
-        // Fetch stamps
-        const stampsRes = await fetch(`${API_BASE}/stamps?userId=${authUser.id}`)
-        const stampsData: StampType[] = await stampsRes.json()
-        setStamps(stampsData)
+        // Fetch stamps for this user
+        console.log(`🔄 Fetching stamps for user ${userData.id}...`)
+        const stampsRes = await fetch(`${API_BASE}/stamps/user/${userData.id}`, {
+          credentials: 'include'
+        })
+        console.log('📊 Stamps Response Status:', stampsRes.status)
+        
+        if (stampsRes.ok) {
+          const stampsData: StampType[] = await stampsRes.json()
+          console.log('✅ Stamps Data:', stampsData)
+          setStamps(stampsData)
+        } else {
+          console.error("❌ Failed to fetch stamps:", stampsRes.status, stampsRes.statusText)
+        }
 
-        // Fetch events
-        const eventsRes = await fetch(`${API_BASE}/events?organizationId=${userData.organization.id}`)
-        const eventsData: EventData[] = await eventsRes.json()
-        setEvents(eventsData)
+        // Fetch events for the user's organization (if organization exists)
+        if (userData.organization?.id) {
+          console.log(`🔄 Fetching events for organization ${userData.organization.id}...`)
+          const eventsRes = await fetch(`${API_BASE}/events/organization/${userData.organization.id}`, {
+            credentials: 'include'
+          })
+          console.log('📊 Events Response Status:', eventsRes.status)
+          
+          if (eventsRes.ok) {
+            const eventsData: EventData[] = await eventsRes.json()
+            console.log('✅ Events Data:', eventsData)
+            setEvents(eventsData)
+          } else {
+            console.error("❌ Failed to fetch events:", eventsRes.status, eventsRes.statusText)
+          }
+        } else {
+          console.warn('⚠️ No organization found for user')
+        }
       } catch (err) {
         console.error("Error fetching dashboard data:", err)
       }
@@ -173,12 +242,27 @@ export default function MemberDashboard() {
     fetchData()
   }, [authUser])
 
-  if (!user) return <div className="min-h-screen flex items-center justify-center text-white">Loading...</div>
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center mx-auto mb-4 animate-pulse">
+            <Zap className="w-8 h-8 text-white" />
+          </div>
+          <p className="text-white text-lg font-medium">Loading your dashboard...</p>
+        </div>
+      </div>
+    )
+  }
 
-  const completionRate = Math.round((stamps.length / events.length) * 100)
+  const completionRate = events.length > 0 ? Math.round((stamps.length / events.length) * 100) : 0
 
   const handleLogout = async () => {
     try {
+      await fetch(`${API_BASE}/users/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      })
       await logout()
       router.push("/")
     } catch (error) {
@@ -203,7 +287,7 @@ export default function MemberDashboard() {
 
           <div className="flex items-center gap-4">
             <div className="text-right">
-              <p className="text-sm font-medium text-white">{user.name}</p>
+              <p className="text-sm font-medium text-white">{user.firstName} {user.lastName}</p>
               <p className="text-xs text-purple-300">{user.role}</p>
             </div>
             <button onClick={handleLogout} className="p-2 hover:bg-purple-500/20 rounded-lg transition-colors text-white" title="Logout">
@@ -217,7 +301,7 @@ export default function MemberDashboard() {
         {/* Welcome Section */}
         <div className="text-center">
           <h2 className="text-4xl font-bold mb-2 text-white">
-            Welcome back, <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">{user.name.split(" ")[0]}</span>!
+            Welcome back, <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">{user.firstName}</span>!
           </h2>
           <p className="text-purple-200">Your digital membership passport</p>
         </div>
