@@ -9,7 +9,7 @@ import { useAuth } from "@/lib/auth-context"
 import type { User, Event } from "@/lib/types"
 
 /* ------------------------- API BASE ------------------------- */
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api"
 
 /* ------------------------- TYPES ------------------------- */
 interface ScanRecord {
@@ -45,15 +45,41 @@ export default function ScannerPage() {
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null)
   const [scans, setScans] = useState<ScanRecord[]>([])
   const [showEventSelector, setShowEventSelector] = useState(false)
+  const [pendingScan, setPendingScan] = useState<{ memberId: string; memberName: string; memberData?: any } | null>(null)
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
 
   /* Fetch all events for the scanner */
   useEffect(() => {
     const fetchEvents = async () => {
       try {
-        const res = await fetch(`${API_BASE}/events`)
-        const data: Event[] = await res.json()
-        setEvents(data)
-        if (data.length > 0) setSelectedEventId(data[0].id)
+        // Get current user to fetch their organization events
+        const userRes = await fetch(`${API_BASE}/users/me`, {
+          credentials: 'include'
+        })
+        
+        if (!userRes.ok) {
+          console.error("Failed to fetch user data")
+          return
+        }
+        
+        const userData = await userRes.json()
+        console.log("Scanner user data:", userData)
+        
+        // Fetch events for the scanner's organization
+        if (userData.organization?.id) {
+          const eventsRes = await fetch(`${API_BASE}/events/organization/${userData.organization.id}`, {
+            credentials: 'include'
+          })
+          
+          if (eventsRes.ok) {
+            const data: Event[] = await eventsRes.json()
+            console.log("Events loaded:", data)
+            setEvents(data)
+            if (data.length > 0) setSelectedEventId(data[0].id)
+          } else {
+            console.error("Failed to fetch events:", eventsRes.status)
+          }
+        }
       } catch (err) {
         console.error("Error fetching events:", err)
       }
@@ -67,9 +93,39 @@ export default function ScannerPage() {
 
     const fetchScans = async () => {
       try {
-        const res = await fetch(`${API_BASE}/scans?eventId=${selectedEventId}`)
-        const data: ScanRecord[] = await res.json()
-        setScans(data)
+        // Get current user (scanner) ID
+        const userRes = await fetch(`${API_BASE}/users/me`, {
+          credentials: 'include'
+        })
+        
+        if (userRes.ok) {
+          const userData = await userRes.json()
+          
+          // Fetch stamps created by this scanner
+          const stampsRes = await fetch(`${API_BASE}/stamps/scanner/${userData.id}`, {
+            credentials: 'include'
+          })
+          
+          if (stampsRes.ok) {
+            const stampsData = await stampsRes.json()
+            
+            // Filter stamps for the selected event and convert to ScanRecord format
+            const eventStamps = stampsData
+              .filter((stamp: any) => stamp.event?.id === selectedEventId)
+              .map((stamp: any) => ({
+                id: stamp.id?.toString() || '',
+                memberName: `${stamp.passport?.member?.firstName || ''} ${stamp.passport?.member?.lastName || ''}`.trim() || 'Unknown',
+                memberId: stamp.passport?.member?.id?.toString() || '',
+                timestamp: new Date(stamp.stampedAt || stamp.createdAt),
+                eventId: stamp.event?.id?.toString() || '',
+                eventName: stamp.event?.eventName || '',
+                status: "success" as const
+              }))
+            
+            console.log("Scan history loaded:", eventStamps)
+            setScans(eventStamps)
+          }
+        }
       } catch (err) {
         console.error("Error fetching scan history:", err)
       }
@@ -82,32 +138,159 @@ export default function ScannerPage() {
 
   /* Handle new scan from QR scanner */
   const handleScan = async (scanData: { memberId: string; memberName: string }) => {
-    if (!currentEvent) return
+    if (!currentEvent) {
+      console.error("No event selected")
+      alert("Please select an event first")
+      return
+    }
 
+    console.log('🔍 QR Code Scanned - Member ID:', scanData.memberId)
+    
     try {
-      const payload = {
-        ...scanData,
-        eventId: currentEvent.id.toString(),
-        eventName: currentEvent.eventName,
-        timestamp: new Date(),
-        status: "success",
+      // Step 1: Fetch member details using member ID
+      console.log(`🔄 Fetching member details for ID ${scanData.memberId}...`)
+      const memberRes = await fetch(`${API_BASE}/users/${scanData.memberId}`, {
+        credentials: 'include'
+      })
+
+      let memberName = scanData.memberName
+      let memberData = null
+
+      if (memberRes.ok) {
+        memberData = await memberRes.json()
+        memberName = `${memberData.firstName} ${memberData.lastName}`
+        console.log('✅ Member details:', memberData)
       }
 
-      const res = await fetch(`${API_BASE}/scans`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+      // Show confirmation dialog with member info
+      setPendingScan({
+        memberId: scanData.memberId,
+        memberName,
+        memberData
       })
-      const savedScan: ScanRecord = await res.json()
-      setScans([savedScan, ...scans])
+      setShowConfirmDialog(true)
+
     } catch (err) {
-      console.error("Error saving scan:", err)
+      console.error("❌ Error fetching member details:", err)
+      alert('Error fetching member details. Please try again.')
     }
+  }
+
+  /* Confirm and create stamp */
+  const confirmStamp = async () => {
+    if (!pendingScan || !currentEvent) return
+
+    setShowConfirmDialog(false)
+
+    try {
+      // Step 2: Get passport(s) for this member ID
+      console.log(`🔄 Fetching passport for member ${pendingScan.memberId}...`)
+      const passportRes = await fetch(`${API_BASE}/passports/member/${pendingScan.memberId}`, {
+        credentials: 'include'
+      })
+
+      if (!passportRes.ok) {
+        console.error('❌ Failed to fetch passport:', passportRes.status)
+        alert(`Failed to find passport for ${pendingScan.memberName}`)
+        setPendingScan(null)
+        return
+      }
+
+      const passportsData = await passportRes.json()
+      console.log('✅ Passport Data:', passportsData)
+      
+      // Handle both single passport and array
+      const passports = Array.isArray(passportsData) ? passportsData : [passportsData]
+      
+      if (passports.length === 0) {
+        console.error('❌ No passport found for member')
+        alert(`No passport found for ${pendingScan.memberName}`)
+        setPendingScan(null)
+        return
+      }
+
+      const passport = passports[0] // Use first passport
+      console.log('📋 Using passport ID:', passport.id)
+
+      // Step 3: Check if stamp already exists for this passport + event
+      console.log(`🔄 Checking for existing stamp (passport: ${passport.id}, event: ${currentEvent.id})...`)
+      const existingStampRes = await fetch(
+        `${API_BASE}/stamps/passport/${passport.id}/event/${currentEvent.id}`,
+        { credentials: 'include' }
+      )
+
+      if (existingStampRes.ok) {
+        console.warn('⚠️ Stamp already exists for this event')
+        alert(`${pendingScan.memberName} is already checked in for this event!`)
+        setPendingScan(null)
+        return
+      }
+
+      // Step 4: Create stamp with passport ID and event ID
+      console.log('🔄 Creating stamp...')
+      const stampPayload = {
+        passport: { id: passport.id },
+        event: { id: currentEvent.id }
+      }
+      
+      console.log('📤 Stamp payload:', stampPayload)
+
+      const createStampRes = await fetch(`${API_BASE}/stamps`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(stampPayload)
+      })
+
+      if (!createStampRes.ok) {
+        const errorText = await createStampRes.text()
+        console.error('❌ Failed to create stamp:', createStampRes.status, errorText)
+        alert('Failed to create stamp. Please try again.')
+        setPendingScan(null)
+        return
+      }
+
+      const createdStamp = await createStampRes.json()
+      console.log('✅ Stamp created successfully:', createdStamp)
+
+      // Step 5: Add to local scan history
+      const newScan: ScanRecord = {
+        id: createdStamp.id?.toString() || Date.now().toString(),
+        memberName: pendingScan.memberName,
+        memberId: pendingScan.memberId,
+        timestamp: new Date(),
+        eventId: currentEvent.id.toString(),
+        eventName: currentEvent.eventName,
+        status: "success"
+      }
+
+      setScans([newScan, ...scans])
+      
+      // Show success notification
+      alert(`✅ Check-in successful!\n\nMember: ${pendingScan.memberName}\nEvent: ${currentEvent.eventName}`)
+      
+      setPendingScan(null)
+      
+    } catch (err) {
+      console.error("❌ Error processing scan:", err)
+      alert('Error processing scan. Please try again.')
+      setPendingScan(null)
+    }
+  }
+
+  /* Cancel stamp creation */
+  const cancelStamp = () => {
+    setShowConfirmDialog(false)
+    setPendingScan(null)
   }
 
   /* Logout */
   const handleLogout = async () => {
     try {
+      await fetch(`${API_BASE}/users/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      })
       await logout()
       router.push("/")
     } catch (error) {
@@ -245,6 +428,59 @@ export default function ScannerPage() {
           </div>
         </section>
       </main>
+
+      {/* Confirmation Dialog */}
+      {showConfirmDialog && pendingScan && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-2xl border border-purple-500/30 p-8 max-w-md w-full shadow-2xl">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <QrCode className="w-8 h-8 text-white" />
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-2">Confirm Check-In</h3>
+              <p className="text-purple-300 text-sm">Review the details before creating stamp</p>
+            </div>
+
+            <div className="bg-slate-900/50 rounded-lg p-4 mb-6 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-purple-300 text-sm">Member Name:</span>
+                <span className="text-white font-semibold">{pendingScan.memberName}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-purple-300 text-sm">Member ID:</span>
+                <span className="text-white font-mono text-sm">{pendingScan.memberId}</span>
+              </div>
+              {pendingScan.memberData?.email && (
+                <div className="flex justify-between items-center">
+                  <span className="text-purple-300 text-sm">Email:</span>
+                  <span className="text-white text-sm">{pendingScan.memberData.email}</span>
+                </div>
+              )}
+              <div className="border-t border-purple-500/20 pt-3 mt-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-purple-300 text-sm">Event:</span>
+                  <span className="text-white font-semibold">{currentEvent?.eventName}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={cancelStamp}
+                className="px-4 py-3 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmStamp}
+                className="px-4 py-3 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold transition-all shadow-lg"
+              >
+                Confirm Check-In
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
