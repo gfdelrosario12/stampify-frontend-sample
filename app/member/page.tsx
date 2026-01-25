@@ -49,14 +49,11 @@ const DigitalIDCard: React.FC<DigitalIDCardProps> = ({ user, stamps, events, fli
             </div>
           </div>
 
-          <div className="flex items-center gap-6 mb-6">
-            <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center text-5xl shadow-lg ring-4 ring-white/30">
-              {user.avatar || `${user.firstName?.charAt(0) || ''}${user.lastName?.charAt(0) || ''}`}
-            </div>
-            <div className="text-white flex-1">
+          <div className="mb-6">
+            <div className="text-white">
               <h3 className="text-2xl font-bold mb-1">{user.firstName} {user.lastName}</h3>
               <p className="text-purple-100 text-sm">{user.email}</p>
-              <p className="text-purple-200 text-xs mt-2 font-mono bg-white/10 px-2 py-1 rounded inline-block">{user.id}</p>
+              <p className="text-purple-200 text-xs mt-2 font-mono bg-white/10 px-2 py-1 rounded inline-block">ID: {user.id}</p>
             </div>
           </div>
 
@@ -201,19 +198,53 @@ export default function MemberDashboard() {
         
         setUser(userData)
 
-        // Fetch stamps for this user
-        console.log(`🔄 Fetching stamps for user ${userData.id}...`)
-        const stampsRes = await fetch(`${API_BASE}/stamps/user/${userData.id}`, {
-          credentials: 'include'
-        })
-        console.log('📊 Stamps Response Status:', stampsRes.status)
-        
-        if (stampsRes.ok) {
-          const stampsData: StampType[] = await stampsRes.json()
-          console.log('✅ Stamps Data:', stampsData)
-          setStamps(stampsData)
-        } else {
-          console.error("❌ Failed to fetch stamps:", stampsRes.status, stampsRes.statusText)
+        // Fetch stamps for this member using their ID from session
+        // Step 1: Get passport using member ID from /me response
+        console.log(`🔄 Fetching passport for member ${userData.id}...`)
+        try {
+          const passportRes = await fetch(`${API_BASE}/passports/member/${userData.id}`, {
+            credentials: 'include'
+          })
+          console.log('📊 Passport Response Status:', passportRes.status)
+          
+          if (passportRes.ok) {
+            const passportData = await passportRes.json()
+            console.log('✅ Passport Data:', passportData)
+            
+            // passportData could be a single passport or array, handle both
+            const passports = Array.isArray(passportData) ? passportData : [passportData]
+            
+            // Step 2: Get stamps for each passport
+            const allStamps: StampType[] = []
+            for (const passport of passports) {
+              if (passport?.id) {
+                console.log(`🔄 Fetching stamps for passport ${passport.id}...`)
+                const stampsRes = await fetch(`${API_BASE}/stamps/passport/${passport.id}`, {
+                  credentials: 'include'
+                })
+                
+                if (stampsRes.ok) {
+                  const stampsData: StampType[] = await stampsRes.json()
+                  console.log(`✅ Stamps for passport ${passport.id}:`, stampsData)
+                  allStamps.push(...stampsData)
+                } else {
+                  console.warn(`⚠️ Failed to fetch stamps for passport ${passport.id}:`, stampsRes.status)
+                }
+              }
+            }
+            
+            console.log('✅ Total stamps collected:', allStamps.length)
+            setStamps(allStamps)
+          } else if (passportRes.status === 404) {
+            console.warn("⚠️ No passport found for member")
+            setStamps([])
+          } else {
+            console.error("❌ Failed to fetch passport:", passportRes.status, passportRes.statusText)
+            setStamps([])
+          }
+        } catch (err) {
+          console.error("❌ Error fetching stamps:", err)
+          setStamps([])
         }
 
         // Fetch events for the user's organization (if organization exists)

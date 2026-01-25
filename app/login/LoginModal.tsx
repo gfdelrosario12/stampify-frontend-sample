@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
+import { useRouter } from "next/navigation";
 import { ArrowRight, X, Eye, EyeOff } from "lucide-react";
 
 interface LoginModalProps {
@@ -13,6 +14,7 @@ interface LoginModalProps {
 
 export default function LoginModal({ isOpen, onClose, isRegister, onToggleMode }: LoginModalProps) {
   const { login } = useAuth();
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -40,10 +42,31 @@ export default function LoginModal({ isOpen, onClose, isRegister, onToggleMode }
     try {
       if (!isRegister) {
         // LOGIN
+        console.log('🔐 Starting login process...')
         const result = await login(email, password);
+        console.log('📊 Login result:', result)
+        
         if (result.success) {
-          onClose(); // Close modal on successful login
+          console.log('✅ Login successful, user data:', result.user)
+          
+          // Close modal first
+          onClose();
+          
+          // Route based on user role
+          const userRole = result.user?.role?.toUpperCase();
+          console.log('🔄 Routing user with role:', userRole)
+          
+          if (userRole === 'ADMIN') {
+            router.push('/admin');
+          } else if (userRole === 'MEMBER') {
+            router.push('/member');
+          } else if (userRole === 'SCANNER') {
+            router.push('/scanner');
+          } else {
+            router.push('/');
+          }
         } else {
+          console.error('❌ Login failed:', result.error)
           setError(result.error || "Invalid credentials");
         }
       } else {
