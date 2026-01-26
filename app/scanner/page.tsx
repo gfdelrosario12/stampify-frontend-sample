@@ -9,7 +9,7 @@ import { useAuth } from "@/lib/auth-context"
 import type { User, Event } from "@/lib/types"
 
 /* ------------------------- API BASE ------------------------- */
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api"
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL
 
 /* ------------------------- TYPES ------------------------- */
 interface ScanRecord {

@@ -11,7 +11,7 @@ import { LoadingOverlay } from "@/components/ui/loading"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 
 /* ------------------------- API BASE ------------------------- */
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080"
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL
 
 // Helper function to convert AuthUser to User type for components
 function convertAuthUserToUser(authUser: AuthUser, org: Org): User {

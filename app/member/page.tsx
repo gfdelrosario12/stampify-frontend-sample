@@ -7,7 +7,7 @@ import { Zap, QrCode, Award, Check, Calendar, Star, TrendingUp, LogOut } from "l
 import type { User, Stamp as StampType } from "@/lib/types"
 
 /* ------------------------- API BASE ------------------------- */
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api" // <-- set in .env
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL
 
 /* ------------------------- TYPES ------------------------- */
 
