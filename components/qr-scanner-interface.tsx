@@ -139,11 +139,21 @@ export function QRScannerInterface({ onScan, currentEvent }: QRScannerInterfaceP
     setLastScan(decodedText)
     
     try {
-      // Parse the QR code data (expecting member ID)
-      const memberId = decodedText.trim()
+      // Parse the QR code data
+      // Expected formats: "MEMBER_ID:3", "3", or just the member ID
+      let memberId = decodedText.trim()
       
-      if (!memberId) {
-        setError("Invalid QR code format")
+      // Extract member ID if it has a prefix
+      if (memberId.includes('MEMBER_ID:')) {
+        memberId = memberId.split('MEMBER_ID:')[1].trim()
+      } else if (memberId.includes(':')) {
+        // Handle any other colon-separated format
+        memberId = memberId.split(':').pop()?.trim() || ''
+      }
+      
+      if (!memberId || isNaN(Number(memberId))) {
+        setError("Invalid QR code format. Expected member ID number.")
+        setTimeout(() => setError(null), 3000)
         return
       }
 

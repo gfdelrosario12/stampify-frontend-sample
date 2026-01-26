@@ -47,6 +47,7 @@ export default function ScannerPage() {
   const [showEventSelector, setShowEventSelector] = useState(false)
   const [pendingScan, setPendingScan] = useState<{ memberId: string; memberName: string; memberData?: any } | null>(null)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
+  const [scannerId, setScannerId] = useState<number | null>(null)
 
   /* Fetch all events for the scanner */
   useEffect(() => {
@@ -64,6 +65,9 @@ export default function ScannerPage() {
         
         const userData = await userRes.json()
         console.log("Scanner user data:", userData)
+        
+        // Store scanner ID for stamp creation
+        setScannerId(userData.id)
         
         // Fetch events for the scanner's organization
         if (userData.organization?.id) {
@@ -146,114 +150,97 @@ export default function ScannerPage() {
 
     console.log('🔍 QR Code Scanned - Member ID:', scanData.memberId)
     
-    try {
-      // Step 1: Fetch member details using member ID
-      console.log(`🔄 Fetching member details for ID ${scanData.memberId}...`)
-      const memberRes = await fetch(`${API_BASE}/users/${scanData.memberId}`, {
-        credentials: 'include'
-      })
-
-      let memberName = scanData.memberName
-      let memberData = null
-
-      if (memberRes.ok) {
-        memberData = await memberRes.json()
-        memberName = `${memberData.firstName} ${memberData.lastName}`
-        console.log('✅ Member details:', memberData)
-      }
-
-      // Show confirmation dialog with member info
-      setPendingScan({
-        memberId: scanData.memberId,
-        memberName,
-        memberData
-      })
-      setShowConfirmDialog(true)
-
-    } catch (err) {
-      console.error("❌ Error fetching member details:", err)
-      alert('Error fetching member details. Please try again.')
-    }
+    // Show confirmation dialog directly without fetching member details
+    // Scanner doesn't need full member info, backend will handle validation
+    setPendingScan({
+      memberId: scanData.memberId,
+      memberName: `Member ${scanData.memberId}`,
+      memberData: null
+    })
+    setShowConfirmDialog(true)
   }
 
   /* Confirm and create stamp */
   const confirmStamp = async () => {
-    if (!pendingScan || !currentEvent) return
+    if (!pendingScan || !currentEvent || !scannerId) {
+      console.error("Missing required data for stamp creation")
+      return
+    }
 
     setShowConfirmDialog(false)
 
     try {
-      // Step 2: Get passport(s) for this member ID
-      console.log(`🔄 Fetching passport for member ${pendingScan.memberId}...`)
+      // Step 1: Fetch passport ID using member ID
+      console.log(`🔄 Step 1: Fetching passport for member ${pendingScan.memberId}...`)
       const passportRes = await fetch(`${API_BASE}/passports/member/${pendingScan.memberId}`, {
         credentials: 'include'
       })
 
       if (!passportRes.ok) {
         console.error('❌ Failed to fetch passport:', passportRes.status)
-        alert(`Failed to find passport for ${pendingScan.memberName}`)
+        alert(`Passport not found for Member ${pendingScan.memberId}`)
         setPendingScan(null)
         return
       }
 
-      const passportsData = await passportRes.json()
-      console.log('✅ Passport Data:', passportsData)
+      const passports = await passportRes.json()
+      console.log('✅ Passport Data:', passports)
       
-      // Handle both single passport and array
-      const passports = Array.isArray(passportsData) ? passportsData : [passportsData]
-      
-      if (passports.length === 0) {
+      if (!Array.isArray(passports) || passports.length === 0) {
         console.error('❌ No passport found for member')
-        alert(`No passport found for ${pendingScan.memberName}`)
+        alert(`Passport not found for Member ${pendingScan.memberId}`)
         setPendingScan(null)
         return
       }
 
-      const passport = passports[0] // Use first passport
-      console.log('📋 Using passport ID:', passport.id)
+      const passportId = passports[0].id
+      console.log('📋 Using Passport ID:', passportId)
 
-      // Step 3: Check if stamp already exists for this passport + event
-      console.log(`🔄 Checking for existing stamp (passport: ${passport.id}, event: ${currentEvent.id})...`)
+      // Step 2: Check duplicate
+      console.log(`🔄 Step 2: Checking for duplicate (passport: ${passportId}, event: ${currentEvent.id})...`)
       const existingStampRes = await fetch(
-        `${API_BASE}/stamps/passport/${passport.id}/event/${currentEvent.id}`,
+        `${API_BASE}/stamps/passport/${passportId}/event/${currentEvent.id}`,
         { credentials: 'include' }
       )
 
       if (existingStampRes.ok) {
-        console.warn('⚠️ Stamp already exists for this event')
-        alert(`${pendingScan.memberName} is already checked in for this event!`)
+        console.warn('⚠️ Already checked in')
+        alert(`Member ${pendingScan.memberId} is already checked in for this event!`)
         setPendingScan(null)
         return
       }
+      console.log('✅ No duplicate found')
 
-      // Step 4: Create stamp with passport ID and event ID
-      console.log('🔄 Creating stamp...')
-      const stampPayload = {
-        passport: { id: passport.id },
-        event: { id: currentEvent.id }
+      // Step 3: Create stamp with simplified payload
+      console.log('🔄 Step 3: Creating stamp...')
+      const payload = {
+        passportId,
+        eventId: currentEvent.id,
+        scannerId,
+        scanStatus: "SUCCESS"
       }
       
-      console.log('📤 Stamp payload:', stampPayload)
+      console.log('📤 Stamp Payload:', JSON.stringify(payload, null, 2))
 
-      const createStampRes = await fetch(`${API_BASE}/stamps`, {
+      const createRes = await fetch(`${API_BASE}/stamps?userId=${scannerId}`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(stampPayload)
+        body: JSON.stringify(payload)
       })
 
-      if (!createStampRes.ok) {
-        const errorText = await createStampRes.text()
-        console.error('❌ Failed to create stamp:', createStampRes.status, errorText)
-        alert('Failed to create stamp. Please try again.')
+      if (!createRes.ok) {
+        const errorText = await createRes.text()
+        console.error('❌ Failed to create stamp:', createRes.status, errorText)
+        alert(`Failed to create stamp: ${errorText || 'Unknown error'}`)
         setPendingScan(null)
         return
       }
 
-      const createdStamp = await createStampRes.json()
-      console.log('✅ Stamp created successfully:', createdStamp)
+      const createdStamp = await createRes.json()
+      console.log('✅ Stamp created successfully!', createdStamp)
 
-      // Step 5: Add to local scan history
+      // Step 4: Update UI
       const newScan: ScanRecord = {
         id: createdStamp.id?.toString() || Date.now().toString(),
         memberName: pendingScan.memberName,
@@ -265,12 +252,9 @@ export default function ScannerPage() {
       }
 
       setScans([newScan, ...scans])
-      
-      // Show success notification
-      alert(`✅ Check-in successful!\n\nMember: ${pendingScan.memberName}\nEvent: ${currentEvent.eventName}`)
-      
       setPendingScan(null)
-      
+      alert(`✅ Check-in successful!\n\nMember ID: ${pendingScan.memberId}\nPassport ID: ${passportId}\nEvent: ${currentEvent.eventName}`)
+
     } catch (err) {
       console.error("❌ Error processing scan:", err)
       alert('Error processing scan. Please try again.')
