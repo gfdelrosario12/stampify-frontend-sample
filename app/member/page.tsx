@@ -11,15 +11,33 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL
 
 /* ------------------------- TYPES ------------------------- */
 
+interface StampDTO {
+  id: number
+  passportId: number
+  eventId: number
+  scannerId: number
+  stampedAt: string
+  scanStatus: string
+  valid: boolean
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+}
+
 interface EventData {
   id: number
   eventName: string
+  eventDescription?: string
+  eventType?: string
+  eventBadge?: string
+  venueName?: string
+  venueImageUrl?: string
   scheduledAt?: string
 }
 
 interface DigitalIDCardProps {
   user: User
-  stamps: StampType[]
+  stamps: StampDTO[]
   events: EventData[]
   flipped: boolean
   onFlip: () => void
@@ -89,26 +107,83 @@ const DigitalIDCard: React.FC<DigitalIDCardProps> = ({ user, stamps, events, fli
 
           <div className="space-y-3 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
             {events.map(event => {
-              const stamp = stamps.find(s => s.event.id === event.id)
+              const stamp = stamps.find(s => s.eventId === event.id)
               return (
                 <div
                   key={event.id}
-                  className={`p-3 rounded-lg transition-all ${
+                  className={`group relative p-3 rounded-lg transition-all ${
                     stamp
                       ? "bg-green-500/30 border-2 border-green-400 shadow-lg shadow-green-500/20"
                       : "bg-white/10 border-2 border-white/20 backdrop-blur-sm"
                   }`}
                 >
-                  <div className="flex justify-between items-center">
-                    <div className="text-white">
-                      <p className="font-semibold text-sm">{event.eventName}</p>
-                      <p className="text-xs text-purple-100">{event.scheduledAt}</p>
-                    </div>
-                    {stamp ? (
-                      <Check className="w-5 h-5 text-green-400" />
+                  <div className="flex items-center gap-3">
+                    {/* Event Badge */}
+                    {event.eventBadge ? (
+                      <div className="relative">
+                        <img 
+                          src={event.eventBadge} 
+                          alt={event.eventName}
+                          className={`w-12 h-12 object-contain rounded-lg ${stamp ? 'opacity-100' : 'opacity-50 grayscale'}`}
+                        />
+                        {stamp && (
+                          <div className="absolute -top-1 -right-1 w-5 h-5 bg-green-400 rounded-full flex items-center justify-center">
+                            <Check className="w-3 h-3 text-white" />
+                          </div>
+                        )}
+                      </div>
                     ) : (
-                      <div className="w-5 h-5 rounded-full border-2 border-white/40" />
+                      <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
+                        stamp ? 'bg-green-500/30' : 'bg-white/10'
+                      }`}>
+                        <Award className={`w-6 h-6 ${stamp ? 'text-green-400' : 'text-white/50'}`} />
+                      </div>
                     )}
+                    
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm text-white truncate">{event.eventName}</p>
+                      <p className="text-xs text-purple-100 truncate">
+                        {event.scheduledAt ? new Date(event.scheduledAt).toLocaleDateString() : 'TBA'}
+                      </p>
+                      {stamp && (
+                        <p className="text-xs text-green-300 mt-1">
+                          ✓ {stamp.scanStatus}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Hover Tooltip */}
+                  <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 bg-slate-900 border border-purple-500/30 rounded-lg p-3 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+                    <div className="flex items-start gap-3">
+                      {event.eventBadge && (
+                        <img 
+                          src={event.eventBadge} 
+                          alt={event.eventName}
+                          className="w-16 h-16 object-contain rounded-lg"
+                        />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-white text-sm mb-1">{event.eventName}</p>
+                        {event.eventDescription && (
+                          <p className="text-xs text-purple-200 mb-2 line-clamp-2">{event.eventDescription}</p>
+                        )}
+                        {event.venueName && (
+                          <p className="text-xs text-purple-300">📍 {event.venueName}</p>
+                        )}
+                        {event.eventType && (
+                          <p className="text-xs text-purple-300 mt-1">
+                            <span className="bg-purple-500/30 px-2 py-0.5 rounded">{event.eventType}</span>
+                          </p>
+                        )}
+                        {stamp && (
+                          <p className="text-xs text-green-400 mt-2 font-medium">
+                            Stamped: {new Date(stamp.stampedAt).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-transparent border-t-slate-900"></div>
                   </div>
                 </div>
               )
@@ -147,7 +222,7 @@ export default function MemberDashboard() {
   const router = useRouter()
   const { user: authUser, logout } = useAuth()
   const [user, setUser] = useState<User | null>(null)
-  const [stamps, setStamps] = useState<StampType[]>([])
+  const [stamps, setStamps] = useState<StampDTO[]>([])
   const [events, setEvents] = useState<EventData[]>([])
   const [flipped, setFlipped] = useState(false)
 
@@ -215,7 +290,7 @@ export default function MemberDashboard() {
             const passports = Array.isArray(passportData) ? passportData : [passportData]
             
             // Step 2: Get stamps for each passport
-            const allStamps: StampType[] = []
+            const allStamps: StampDTO[] = []
             for (const passport of passports) {
               if (passport?.id) {
                 console.log(`🔄 Fetching stamps for passport ${passport.id}...`)
@@ -224,7 +299,7 @@ export default function MemberDashboard() {
                 })
                 
                 if (stampsRes.ok) {
-                  const stampsData: StampType[] = await stampsRes.json()
+                  const stampsData: StampDTO[] = await stampsRes.json()
                   console.log(`✅ Stamps for passport ${passport.id}:`, stampsData)
                   allStamps.push(...stampsData)
                 } else {
@@ -368,6 +443,100 @@ export default function MemberDashboard() {
           <DigitalIDCard user={user} stamps={stamps} events={events} flipped={flipped} onFlip={() => setFlipped(!flipped)} />
         </div>
 
+        {/* Badge Collection */}
+        <div className="bg-slate-800/50 rounded-xl border border-purple-500/20 p-6 backdrop-blur-sm">
+          <h3 className="text-xl font-semibold mb-4 flex items-center gap-2 text-white">
+            <Award className="w-5 h-5 text-purple-400" />
+            Your Badge Collection
+          </h3>
+
+          {stamps.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="w-16 h-16 bg-purple-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Award className="w-8 h-8 text-purple-400" />
+              </div>
+              <p className="text-purple-200 mb-2">No badges collected yet</p>
+              <p className="text-purple-300 text-sm">Attend events to earn badges!</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {events.map(event => {
+                const stamp = stamps.find(s => s.eventId === event.id)
+                return (
+                  <div
+                    key={event.id}
+                    className={`group relative aspect-square rounded-xl overflow-hidden transition-all duration-300 ${
+                      stamp 
+                        ? 'ring-2 ring-green-400 shadow-lg shadow-green-500/20 hover:scale-105' 
+                        : 'opacity-40 grayscale hover:opacity-60'
+                    }`}
+                  >
+                    {/* Badge Image */}
+                    {event.eventBadge ? (
+                      <div className="w-full h-full bg-gradient-to-br from-purple-900/50 to-pink-900/50 flex items-center justify-center p-4">
+                        <img 
+                          src={event.eventBadge} 
+                          alt={event.eventName}
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center">
+                        <Award className="w-12 h-12 text-white" />
+                      </div>
+                    )}
+
+                    {/* Stamp Check Mark */}
+                    {stamp && (
+                      <div className="absolute top-2 right-2 w-8 h-8 bg-green-400 rounded-full flex items-center justify-center shadow-lg">
+                        <Check className="w-5 h-5 text-white" />
+                      </div>
+                    )}
+
+                    {/* Hover Overlay with Details */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-3">
+                      <p className="text-white font-bold text-sm mb-1 line-clamp-2">{event.eventName}</p>
+                      {stamp ? (
+                        <div className="space-y-0.5">
+                          <p className="text-green-300 text-xs font-medium">✓ Collected</p>
+                          <p className="text-purple-200 text-xs">
+                            {new Date(stamp.stampedAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-purple-300 text-xs">Not collected yet</p>
+                      )}
+                    </div>
+
+                    {/* Lock Icon for Uncollected */}
+                    {!stamp && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                        <div className="w-10 h-10 bg-slate-800/80 rounded-full flex items-center justify-center">
+                          <div className="w-6 h-6 border-2 border-white/60 rounded-full"></div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Collection Progress */}
+          <div className="mt-6 bg-purple-500/10 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-purple-200 text-sm font-medium">Collection Progress</span>
+              <span className="text-white font-bold">{stamps.length}/{events.length}</span>
+            </div>
+            <div className="w-full bg-slate-700 rounded-full h-3 overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full transition-all duration-500"
+                style={{ width: `${events.length > 0 ? (stamps.length / events.length) * 100 : 0}%` }}
+              ></div>
+            </div>
+          </div>
+        </div>
+
         {/* Recent Activity */}
         <div className="bg-slate-800/50 rounded-xl border border-purple-500/20 p-6 backdrop-blur-sm">
           <h3 className="text-xl font-semibold mb-4 flex items-center gap-2 text-white">
@@ -386,14 +555,17 @@ export default function MemberDashboard() {
           ) : (
             <div className="space-y-3">
               {stamps.slice(0, 5).map(stamp => {
-                const event = events.find(e => e.id === stamp.event.id)
+                const event = events.find(e => e.id === stamp.eventId)
                 return (
                   <div key={stamp.id} className="bg-purple-500/10 border-l-4 border-purple-500 rounded-r-lg pl-4 pr-4 py-3 hover:bg-purple-500/20 transition-colors">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="font-semibold text-white">{event?.eventName}</p>
+                        <p className="font-semibold text-white">{event?.eventName || `Event ${stamp.eventId}`}</p>
                         <p className="text-sm text-purple-300">
                           {stamp.stampedAt ? new Date(stamp.stampedAt).toLocaleString() : "Unknown date"}
+                        </p>
+                        <p className="text-xs text-purple-400 mt-1">
+                          Status: {stamp.scanStatus} • Valid: {stamp.valid ? "✓" : "✗"}
                         </p>
                       </div>
                       <Check className="w-5 h-5 text-green-400" />

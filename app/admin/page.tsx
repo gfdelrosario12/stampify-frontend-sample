@@ -5,7 +5,7 @@ import { useAuth, Role as AuthRole, User as AuthUser, Org } from "@/lib/auth-con
 import { useRouter } from "next/navigation"
 import { MembersManagement } from "@/components/members-management"
 import { EventsManagement } from "@/components/events-management"
-import { BarChart3, Users, Calendar, TrendingUp, LogOut, Zap, Loader2, CheckCircle, XCircle } from "lucide-react"
+import { BarChart3, Users, Calendar, TrendingUp, LogOut, Zap, Loader2, CheckCircle, XCircle, RefreshCw } from "lucide-react"
 import type { Event, AuditLog, User } from "@/lib/types"
 import { LoadingOverlay } from "@/components/ui/loading"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -53,9 +53,11 @@ export default function AdminPage() {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [loading, setLoading] = useState(true)
   const [pageLoading, setPageLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [activeTab, setActiveTab] = useState<"overview" | "members" | "scanners" | "admins" | "events">("overview")
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; type: "user" | "event"; id: number; name: string } | null>(null)
   const [notification, setNotification] = useState<{ message: string; type: "success" | "error" } | null>(null)
+  const [autoRefresh, setAutoRefresh] = useState(true)
 
   // Show notification helper
   const showNotification = (message: string, type: "success" | "error") => {
@@ -66,43 +68,97 @@ export default function AdminPage() {
   // Get organizationId safely
   const organizationId = authUser?.organizationId
 
-  // ------------------------- DATA FETCH -------------------------
-  useEffect(() => {
+  // ------------------------- DATA FETCH FUNCTION -------------------------
+  const fetchData = async (showLoader = false) => {
     if (!authUser || !organizationId) return
-    const fetchData = async () => {
-      try {
-        const [usersRes, eventsRes, logsRes] = await Promise.all([
-          fetch(`${API_BASE}/admins/users`, {
-            credentials: "include",
-          }),
-          fetch(`${API_BASE}/events/organization/${organizationId}`, {
-            credentials: "include",
-          }),
-          fetch(`${API_BASE}/admins/audit/logs`, {
-            credentials: "include",
-          })
-        ])
-
-        if (!usersRes.ok || !eventsRes.ok || !logsRes.ok) {
-          throw new Error("Failed to fetch admin data: " + [usersRes.status, eventsRes.status, logsRes.status].join(", "))
-        }
-
-        const usersData: AuthUser[] = await usersRes.json()
-        const eventsData: Event[] = await eventsRes.json()
-        const logsData: AuditLog[] = await logsRes.json()
-
-        setUsers(usersData)
-        setEvents(eventsData)
-        setAuditLogs(logsData)
-      } catch (error) {
-        console.error("Error fetching admin data:", error)
-      } finally {
-        setLoading(false)
-      }
+    
+    if (showLoader) {
+      setRefreshing(true)
     }
+    
+    try {
+      console.log('🔄 Fetching admin data for organization:', organizationId)
+      
+      // Fetch users from admin endpoint
+      let usersData: AuthUser[] = []
+      try {
+        const usersRes = await fetch(`${API_BASE}/admins/users`, {
+          credentials: "include",
+        })
+        
+        if (usersRes.ok) {
+          const rawUsers = await usersRes.json()
+          console.log('✅ Users fetched from /admins/users:', rawUsers)
+          
+          // Filter users by organization ID
+          usersData = rawUsers.filter((u: any) => u.organization?.id === organizationId)
+          console.log('✅ Filtered users for org', organizationId, ':', usersData)
+        } else {
+          console.warn('⚠️ Failed to fetch users from /admins/users:', usersRes.status)
+        }
+      } catch (userError) {
+        console.error('❌ Error fetching users:', userError)
+      }
+      
+      const [eventsRes, logsRes] = await Promise.all([
+        fetch(`${API_BASE}/events/organization/${organizationId}`, {
+          credentials: "include",
+        }),
+        fetch(`${API_BASE}/admins/audit/logs`, {
+          credentials: "include",
+        })
+      ])
 
+      if (!eventsRes.ok || !logsRes.ok) {
+        throw new Error("Failed to fetch admin data: " + [eventsRes.status, logsRes.status].join(", "))
+      }
+
+      const eventsData: Event[] = await eventsRes.json()
+      const logsData: AuditLog[] = await logsRes.json()
+
+      console.log('✅ Events loaded:', eventsData.length)
+      console.log('✅ Logs loaded:', logsData.length)
+      console.log('✅ Total users loaded:', usersData.length)
+
+      setUsers(usersData)
+      setEvents(eventsData)
+      setAuditLogs(logsData)
+      
+      if (showLoader) {
+        showNotification("Data refreshed successfully!", "success")
+      }
+    } catch (error) {
+      console.error("Error fetching admin data:", error)
+      if (showLoader) {
+        showNotification("Failed to refresh data", "error")
+      }
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }
+
+  // ------------------------- INITIAL DATA FETCH -------------------------
+  useEffect(() => {
     fetchData()
   }, [authUser, organizationId])
+
+  // ------------------------- AUTO REFRESH (every 30 seconds) -------------------------
+  useEffect(() => {
+    if (!autoRefresh || !authUser || !organizationId) return
+
+    const intervalId = setInterval(() => {
+      console.log('🔄 Auto-refreshing data...')
+      fetchData(false)
+    }, 30000) // 30 seconds
+
+    return () => clearInterval(intervalId)
+  }, [autoRefresh, authUser, organizationId])
+
+  // Manual refresh handler
+  const handleManualRefresh = () => {
+    fetchData(true)
+  }
 
   // ------------------------- HANDLERS -------------------------
   const handleDeleteUser = async (userId: number) => {
@@ -113,7 +169,8 @@ export default function AdminPage() {
     
     setPageLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/admins/users/${userId}?actorId=${authUser.id}`, {
+      // DELETE /api/users/{id} - actorEmail comes from JWT token via @RequestAttribute
+      const res = await fetch(`${API_BASE}/users/${userId}`, {
         method: "DELETE",
         credentials: "include",
       })
@@ -271,6 +328,30 @@ export default function AdminPage() {
           </div>
 
           <div className="flex items-center gap-4">
+            {/* Auto-refresh toggle */}
+            <button
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-colors ${
+                autoRefresh 
+                  ? "bg-green-500/20 text-green-300 border border-green-500/30" 
+                  : "bg-slate-700 text-slate-300 border border-slate-600"
+              }`}
+              title={autoRefresh ? "Auto-refresh enabled (every 30s)" : "Auto-refresh disabled"}
+            >
+              <div className={`w-2 h-2 rounded-full ${autoRefresh ? "bg-green-400 animate-pulse" : "bg-slate-400"}`} />
+              Auto
+            </button>
+
+            {/* Manual refresh button */}
+            <button
+              onClick={handleManualRefresh}
+              disabled={refreshing}
+              className="p-2 hover:bg-purple-500/20 rounded-lg transition-colors text-white disabled:opacity-50"
+              title="Refresh data"
+            >
+              <RefreshCw className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} />
+            </button>
+
             <div className="text-right">
               <p className="text-sm font-medium text-white">{authUser.firstName} {authUser.lastName}</p>
               <p className="text-xs text-purple-300 capitalize">{authUser.role}</p>
@@ -393,10 +474,11 @@ export default function AdminPage() {
                     organizationId: authUser.organizationId,
                   }
                   
-                  console.log('Creating user with actorId:', authUser.id)
+                  console.log('Creating user via POST /api/users')
                   console.log('Request payload:', requestPayload)
                   
-                  const res = await fetch(`${API_BASE}/admins/users?actorId=${authUser.id}`, {
+                  // POST /api/users (public registration endpoint)
+                  const res = await fetch(`${API_BASE}/users`, {
                     method: "POST",
                     credentials: "include",
                     headers: { "Content-Type": "application/json" },
@@ -443,11 +525,11 @@ export default function AdminPage() {
                     organizationId: updated.organization?.id || authUser.organizationId,
                   }
                   
-                  console.log('Updating user with actorId:', authUser.id)
-                  console.log('User ID to update:', updated.id)
+                  console.log('Updating user ID:', updated.id)
                   console.log('Request payload:', requestPayload)
                   
-                  const res = await fetch(`${API_BASE}/admins/users/${updated.id}?actorId=${authUser.id}`, {
+                  // PUT /api/users/{id} - actorEmail comes from JWT token via @RequestAttribute
+                  const res = await fetch(`${API_BASE}/users/${updated.id}`, {
                     method: "PUT",
                     credentials: "include",
                     headers: { "Content-Type": "application/json" },
@@ -505,18 +587,24 @@ export default function AdminPage() {
                 
                 setPageLoading(true)
                 try {
-                  // Ensure organization is included in the event payload
+                  // Map Event to EventDTO format expected by backend
                   const eventPayload = {
-                    ...e,
+                    eventName: e.eventName,
+                    eventDescription: e.eventDescription || "",
+                    eventType: e.eventType || "",
+                    eventBadge: e.eventBadge || null,
+                    venueName: e.venueName || "",
+                    venueImageUrl: e.venueImageUrl || null,
+                    scheduledAt: e.scheduledAt || null,
                     organization: {
                       id: authUser.organizationId,
                     },
                   }
                   
-                  console.log('Creating event')
-                  console.log('Event payload:', eventPayload)
+                  console.log('Creating event via POST /api/events')
+                  console.log('Event payload:', JSON.stringify(eventPayload, null, 2))
                   
-                  // POST /api/events (no actorId - backend doesn't use it for create)
+                  // POST /api/events (expects EventDTO)
                   const res = await fetch(`${API_BASE}/events`, {
                     method: "POST",
                     credentials: "include",
@@ -526,18 +614,18 @@ export default function AdminPage() {
                   
                   if (!res.ok) {
                     const errorText = await res.text()
+                    console.error('❌ Response status:', res.status)
+                    console.error('❌ Response body:', errorText)
                     throw new Error(`Failed to create event: ${errorText}`)
                   }
                   
                   const newEvent: Event = await res.json()
+                  console.log('✅ Event created:', newEvent)
+                  
                   setEvents(prev => [...prev, newEvent])
                   
-                  // Refresh audit logs
-                  const logsRes = await fetch(`${API_BASE}/admins/audit/logs`, {
-                    credentials: "include",
-                  })
-                  const logsData: AuditLog[] = await logsRes.json()
-                  setAuditLogs(logsData)
+                  // Refresh data to get latest state
+                  await fetchData(false)
                   
                   showNotification("Event created successfully!", "success")
                 } catch (error) {

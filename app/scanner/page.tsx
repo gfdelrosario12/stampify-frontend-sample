@@ -22,6 +22,19 @@ interface ScanRecord {
   status: "success" | "pending"
 }
 
+interface StampDTO {
+  id: number
+  passportId: number
+  eventId: number
+  scannerId: number
+  stampedAt: string
+  scanStatus: string
+  valid: boolean
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+}
+
 /* ------------------------- STAT CARD ------------------------- */
 const StatCard = ({ icon, label, value, gradient }: { icon: React.ReactNode; label: string; value: string | number; gradient: string }) => (
   <div className={`bg-gradient-to-br ${gradient} rounded-xl p-6 text-white shadow-lg`}>
@@ -93,50 +106,52 @@ export default function ScannerPage() {
 
   /* Fetch scan history whenever selected event changes */
   useEffect(() => {
-    if (!selectedEventId) return
+    if (!selectedEventId || !scannerId) return
 
     const fetchScans = async () => {
       try {
-        // Get current user (scanner) ID
-        const userRes = await fetch(`${API_BASE}/users/me`, {
+        console.log(`🔄 Fetching stamps by scanner ${scannerId}...`)
+        
+        // Fetch StampDTOs created by this scanner
+        const stampsRes = await fetch(`${API_BASE}/stamps/scanner/${scannerId}`, {
           credentials: 'include'
         })
         
-        if (userRes.ok) {
-          const userData = await userRes.json()
+        if (stampsRes.ok) {
+          const stampDTOs: StampDTO[] = await stampsRes.json()
+          console.log('✅ StampDTOs received:', stampDTOs)
           
-          // Fetch stamps created by this scanner
-          const stampsRes = await fetch(`${API_BASE}/stamps/scanner/${userData.id}`, {
-            credentials: 'include'
-          })
+          // Filter stamps for the selected event
+          const eventStampDTOs = stampDTOs.filter((stamp) => stamp.eventId === selectedEventId)
+          console.log(`✅ Filtered ${eventStampDTOs.length} stamps for event ${selectedEventId}`)
           
-          if (stampsRes.ok) {
-            const stampsData = await stampsRes.json()
-            
-            // Filter stamps for the selected event and convert to ScanRecord format
-            const eventStamps = stampsData
-              .filter((stamp: any) => stamp.event?.id === selectedEventId)
-              .map((stamp: any) => ({
-                id: stamp.id?.toString() || '',
-                memberName: `${stamp.passport?.member?.firstName || ''} ${stamp.passport?.member?.lastName || ''}`.trim() || 'Unknown',
-                memberId: stamp.passport?.member?.id?.toString() || '',
-                timestamp: new Date(stamp.stampedAt || stamp.createdAt),
-                eventId: stamp.event?.id?.toString() || '',
-                eventName: stamp.event?.eventName || '',
-                status: "success" as const
-              }))
-            
-            console.log("Scan history loaded:", eventStamps)
-            setScans(eventStamps)
-          }
+          // Get current event name for display
+          const currentEventName = events.find(e => e.id === selectedEventId)?.eventName || `Event ${selectedEventId}`
+          
+          // Convert StampDTOs to ScanRecords for UI display
+          // Note: StampDTO doesn't include member/event details, so we show IDs
+          const eventScans: ScanRecord[] = eventStampDTOs.map((stamp) => ({
+            id: stamp.id.toString(),
+            memberName: `Passport ${stamp.passportId}`, // We only have passport ID from DTO
+            memberId: stamp.passportId.toString(),
+            timestamp: new Date(stamp.stampedAt),
+            eventId: stamp.eventId.toString(),
+            eventName: currentEventName,
+            status: stamp.scanStatus === "SUCCESS" ? "success" as const : "pending" as const
+          }))
+          
+          console.log('✅ Scan history loaded:', eventScans)
+          setScans(eventScans)
+        } else {
+          console.error('❌ Failed to fetch stamps:', stampsRes.status)
         }
       } catch (err) {
-        console.error("Error fetching scan history:", err)
+        console.error("❌ Error fetching scan history:", err)
       }
     }
 
     fetchScans()
-  }, [selectedEventId])
+  }, [selectedEventId, scannerId, events])
 
   const currentEvent = events.find((e) => e.id === selectedEventId)
 
@@ -240,15 +255,16 @@ export default function ScannerPage() {
       const createdStamp = await createRes.json()
       console.log('✅ Stamp created successfully!', createdStamp)
 
-      // Step 4: Update UI
+      // Step 4: Update UI with StampDTO response
+      const stampDTO: StampDTO = createdStamp
       const newScan: ScanRecord = {
-        id: createdStamp.id?.toString() || Date.now().toString(),
+        id: stampDTO.id.toString(),
         memberName: pendingScan.memberName,
         memberId: pendingScan.memberId,
-        timestamp: new Date(),
-        eventId: currentEvent.id.toString(),
+        timestamp: new Date(stampDTO.stampedAt),
+        eventId: stampDTO.eventId.toString(),
         eventName: currentEvent.eventName,
-        status: "success"
+        status: stampDTO.scanStatus === "SUCCESS" ? "success" : "pending"
       }
 
       setScans([newScan, ...scans])

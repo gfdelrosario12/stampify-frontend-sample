@@ -153,6 +153,60 @@ export function EventsManagement({ events, org, onAddEvent, onEditEvent, onDelet
 
     setSubmitting(true)
     try {
+      const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080"
+      
+      let badgeUrl = badgePreview || editingEvent?.eventBadge || ""
+      let venueUrl = venuePreview || editingEvent?.venueImageUrl || ""
+
+      // Upload badge to S3 if new file selected
+      if (badgeFile) {
+        console.log('📤 Uploading event badge to S3...')
+        const formData = new FormData()
+        formData.append('file', badgeFile)
+        formData.append('filename', badgeFile.name)
+        formData.append('organizationId', org.id.toString())
+
+        const badgeRes = await fetch(`${API_BASE}/upload/event-badge`, {
+          method: 'POST',
+          credentials: 'include',
+          body: formData,
+        })
+
+        if (!badgeRes.ok) {
+          const errorText = await badgeRes.text()
+          throw new Error(`Failed to upload badge: ${errorText}`)
+        }
+
+        const badgeData = await badgeRes.json()
+        badgeUrl = badgeData.eventBadgeUrl
+        console.log('✅ Badge uploaded:', badgeUrl)
+      }
+
+      // Upload venue image to S3 if new file selected
+      if (venueFile) {
+        console.log('📤 Uploading venue image to S3...')
+        const formData = new FormData()
+        formData.append('file', venueFile)
+        formData.append('filename', venueFile.name)
+        formData.append('organizationId', org.id.toString())
+
+        const venueRes = await fetch(`${API_BASE}/upload/venue-image`, {
+          method: 'POST',
+          credentials: 'include',
+          body: formData,
+        })
+
+        if (!venueRes.ok) {
+          const errorText = await venueRes.text()
+          throw new Error(`Failed to upload venue image: ${errorText}`)
+        }
+
+        const venueData = await venueRes.json()
+        venueUrl = venueData.venueImageUrl
+        console.log('✅ Venue image uploaded:', venueUrl)
+      }
+
+      // Create event data with S3 URLs
       const eventData: Event = {
         id: editingEvent?.id || 0,
         eventName: eventName.trim(),
@@ -160,10 +214,12 @@ export function EventsManagement({ events, org, onAddEvent, onEditEvent, onDelet
         eventType: eventType.trim(),
         venueName: venueName.trim(),
         scheduledAt: scheduledAt,
-        eventBadge: badgePreview || editingEvent?.eventBadge || "",
-        venueImageUrl: venuePreview || editingEvent?.venueImageUrl || "",
+        eventBadge: badgeUrl,
+        venueImageUrl: venueUrl,
         organization: org,
       }
+
+      console.log('📤 Submitting event data:', eventData)
 
       if (editingEvent) {
         await onEditEvent(eventData)
@@ -175,6 +231,7 @@ export function EventsManagement({ events, org, onAddEvent, onEditEvent, onDelet
       resetForm()
     } catch (error) {
       console.error("Error submitting event:", error)
+      alert(`Failed to save event: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setSubmitting(false)
     }
