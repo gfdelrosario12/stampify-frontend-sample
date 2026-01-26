@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { QRScannerInterface } from "@/components/qr-scanner-interface"
 import { ScanHistoryTable } from "@/components/scan-history-table"
-import { BarChart3, Clock, Users, TrendingUp, LogOut, Zap, QrCode, Calendar } from "lucide-react"
+import { BarChart3, Clock, Users, TrendingUp, LogOut, Zap, QrCode, Calendar, RefreshCw } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import type { User, Event } from "@/lib/types"
@@ -61,6 +61,53 @@ export default function ScannerPage() {
   const [pendingScan, setPendingScan] = useState<{ memberId: string; memberName: string; memberData?: any } | null>(null)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [scannerId, setScannerId] = useState<number | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [autoRefresh, setAutoRefresh] = useState(true)
+
+  /* ------------------------- DATA FETCH FUNCTION ------------------------- */
+  const fetchScanHistory = async (showLoader = false) => {
+    if (!selectedEventId || !scannerId) return
+
+    if (showLoader) {
+      setRefreshing(true)
+    }
+
+    try {
+      console.log(`🔄 Fetching stamps by scanner ${scannerId}...`)
+      
+      const stampsRes = await fetch(`${API_BASE}/stamps/scanner/${scannerId}`, {
+        credentials: 'include'
+      })
+      
+      if (stampsRes.ok) {
+        const stampDTOs: StampDTO[] = await stampsRes.json()
+        console.log('✅ StampDTOs received:', stampDTOs.length)
+        
+        const eventStampDTOs = stampDTOs.filter((stamp) => stamp.eventId === selectedEventId)
+        console.log(`✅ Filtered ${eventStampDTOs.length} stamps for event ${selectedEventId}`)
+        
+        const currentEventName = events.find(e => e.id === selectedEventId)?.eventName || `Event ${selectedEventId}`
+        
+        const eventScans: ScanRecord[] = eventStampDTOs.map((stamp) => ({
+          id: stamp.id.toString(),
+          memberName: `Passport ${stamp.passportId}`,
+          memberId: stamp.passportId.toString(),
+          timestamp: new Date(stamp.stampedAt),
+          eventId: stamp.eventId.toString(),
+          eventName: currentEventName,
+          status: stamp.scanStatus === "SUCCESS" ? "success" as const : "pending" as const
+        }))
+        
+        setScans(eventScans)
+      }
+    } catch (err) {
+      console.error("❌ Error fetching scan history:", err)
+    } finally {
+      if (showLoader) {
+        setRefreshing(false)
+      }
+    }
+  }
 
   /* Fetch all events for the scanner */
   useEffect(() => {
@@ -152,6 +199,23 @@ export default function ScannerPage() {
 
     fetchScans()
   }, [selectedEventId, scannerId, events])
+
+  /* ------------------------- AUTO REFRESH (every 10 seconds for scanner) ------------------------- */
+  useEffect(() => {
+    if (!autoRefresh || !selectedEventId || !scannerId) return
+
+    const intervalId = setInterval(() => {
+      console.log('🔄 Auto-refreshing scan history...')
+      fetchScanHistory(false)
+    }, 10000) // 10 seconds (faster for scanners to see real-time updates)
+
+    return () => clearInterval(intervalId)
+  }, [autoRefresh, selectedEventId, scannerId, events])
+
+  // Manual refresh handler
+  const handleManualRefresh = () => {
+    fetchScanHistory(true)
+  }
 
   const currentEvent = events.find((e) => e.id === selectedEventId)
 
@@ -320,6 +384,30 @@ export default function ScannerPage() {
           </div>
 
           <div className="flex items-center gap-4">
+            {/* Auto-refresh toggle */}
+            <button
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-colors ${
+                autoRefresh 
+                  ? "bg-green-500/20 text-green-300 border border-green-500/30" 
+                  : "bg-slate-700 text-slate-300 border border-slate-600"
+              }`}
+              title={autoRefresh ? "Auto-refresh enabled (every 10s)" : "Auto-refresh disabled"}
+            >
+              <div className={`w-2 h-2 rounded-full ${autoRefresh ? "bg-green-400 animate-pulse" : "bg-slate-400"}`} />
+              Auto
+            </button>
+
+            {/* Manual refresh button */}
+            <button
+              onClick={handleManualRefresh}
+              disabled={refreshing}
+              className="p-2 hover:bg-purple-500/20 rounded-lg transition-colors text-white disabled:opacity-50"
+              title="Refresh scan history"
+            >
+              <RefreshCw className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} />
+            </button>
+
             <div className="text-right">
               <p className="text-sm font-medium text-white">Scanner</p>
               <p className="text-xs text-purple-300">Event Staff</p>

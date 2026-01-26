@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "next/navigation"
-import { Zap, QrCode, Award, Check, Calendar, Star, TrendingUp, LogOut } from "lucide-react"
+import { Zap, QrCode, Award, Check, Calendar, Star, TrendingUp, LogOut, RefreshCw } from "lucide-react"
 import type { User, Stamp as StampType } from "@/lib/types"
 
 /* ------------------------- API BASE ------------------------- */
@@ -225,128 +225,121 @@ export default function MemberDashboard() {
   const [stamps, setStamps] = useState<StampDTO[]>([])
   const [events, setEvents] = useState<EventData[]>([])
   const [flipped, setFlipped] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [autoRefresh, setAutoRefresh] = useState(true)
 
-  useEffect(() => {
+  // ------------------------- DATA FETCH FUNCTION -------------------------
+  const fetchData = async (showLoader = false) => {
     if (!authUser) return
-
-    const fetchData = async () => {
-      try {
-        // Fetch user info from /me endpoint
-        console.log('🔄 Fetching /me endpoint...')
-        const userRes = await fetch(`${API_BASE}/users/me`, {
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        })
-        
-        console.log('📊 /me Response Status:', userRes.status)
-        console.log('📊 /me Response OK:', userRes.ok)
-        
-        if (!userRes.ok) {
-          console.error("❌ Failed to fetch user data:", userRes.status, userRes.statusText)
-          return
-        }
-        
-        const userData: User = await userRes.json()
-        console.log('✅ /me Response Data:', userData)
-        console.log('════════════════════════════════════════')
-        console.log('� USER DETAILS:')
-        console.log('  ID:', userData.id)
-        console.log('  First Name:', userData.firstName)
-        console.log('  Last Name:', userData.lastName)
-        console.log('  Email:', userData.email)
-        console.log('  Role:', userData.role)
-        console.log('  Active:', (userData as any).active)
-        console.log('  Password Changed At:', (userData as any).passwordChangedAt)
-        console.log('  Created At:', (userData as any).createdAt)
-        console.log('  Updated At:', (userData as any).updatedAt)
-        console.log('📋 ORGANIZATION:')
-        console.log('  Organization Object:', userData.organization)
-        console.log('  Organization ID:', userData.organization?.id)
-        console.log('  Organization Name:', userData.organization?.name)
-        console.log('📋 MEMBER-SPECIFIC (if applicable):')
-        console.log('  Member Code:', (userData as any).memberCode)
-        console.log('  QR Code URL:', (userData as any).qrCodeUrl)
-        console.log('  Passport Count:', (userData as any).passportCount)
-        console.log('════════════════════════════════════════')
-        
-        setUser(userData)
-
-        // Fetch stamps for this member using their ID from session
-        // Step 1: Get passport using member ID from /me response
-        console.log(`🔄 Fetching passport for member ${userData.id}...`)
-        try {
-          const passportRes = await fetch(`${API_BASE}/passports/member/${userData.id}`, {
-            credentials: 'include'
-          })
-          console.log('📊 Passport Response Status:', passportRes.status)
-          
-          if (passportRes.ok) {
-            const passportData = await passportRes.json()
-            console.log('✅ Passport Data:', passportData)
-            
-            // passportData could be a single passport or array, handle both
-            const passports = Array.isArray(passportData) ? passportData : [passportData]
-            
-            // Step 2: Get stamps for each passport
-            const allStamps: StampDTO[] = []
-            for (const passport of passports) {
-              if (passport?.id) {
-                console.log(`🔄 Fetching stamps for passport ${passport.id}...`)
-                const stampsRes = await fetch(`${API_BASE}/stamps/passport/${passport.id}`, {
-                  credentials: 'include'
-                })
-                
-                if (stampsRes.ok) {
-                  const stampsData: StampDTO[] = await stampsRes.json()
-                  console.log(`✅ Stamps for passport ${passport.id}:`, stampsData)
-                  allStamps.push(...stampsData)
-                } else {
-                  console.warn(`⚠️ Failed to fetch stamps for passport ${passport.id}:`, stampsRes.status)
-                }
-              }
-            }
-            
-            console.log('✅ Total stamps collected:', allStamps.length)
-            setStamps(allStamps)
-          } else if (passportRes.status === 404) {
-            console.warn("⚠️ No passport found for member")
-            setStamps([])
-          } else {
-            console.error("❌ Failed to fetch passport:", passportRes.status, passportRes.statusText)
-            setStamps([])
-          }
-        } catch (err) {
-          console.error("❌ Error fetching stamps:", err)
-          setStamps([])
-        }
-
-        // Fetch events for the user's organization (if organization exists)
-        if (userData.organization?.id) {
-          console.log(`🔄 Fetching events for organization ${userData.organization.id}...`)
-          const eventsRes = await fetch(`${API_BASE}/events/organization/${userData.organization.id}`, {
-            credentials: 'include'
-          })
-          console.log('📊 Events Response Status:', eventsRes.status)
-          
-          if (eventsRes.ok) {
-            const eventsData: EventData[] = await eventsRes.json()
-            console.log('✅ Events Data:', eventsData)
-            setEvents(eventsData)
-          } else {
-            console.error("❌ Failed to fetch events:", eventsRes.status, eventsRes.statusText)
-          }
-        } else {
-          console.warn('⚠️ No organization found for user')
-        }
-      } catch (err) {
-        console.error("Error fetching dashboard data:", err)
-      }
+    
+    if (showLoader) {
+      setRefreshing(true)
     }
 
+    try {
+      // Fetch user info from /me endpoint
+      console.log('🔄 Fetching /me endpoint...')
+      const userRes = await fetch(`${API_BASE}/users/me`, {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+      
+      if (!userRes.ok) {
+        console.error("❌ Failed to fetch user data:", userRes.status, userRes.statusText)
+        return
+      }
+      
+      const userData: User = await userRes.json()
+      console.log('✅ User data loaded')
+      setUser(userData)
+
+      // Fetch stamps for this member using their ID from session
+      console.log(`🔄 Fetching passport for member ${userData.id}...`)
+      try {
+        const passportRes = await fetch(`${API_BASE}/passports/member/${userData.id}`, {
+          credentials: 'include'
+        })
+        
+        if (passportRes.ok) {
+          const passportData = await passportRes.json()
+          const passports = Array.isArray(passportData) ? passportData : [passportData]
+          
+          // Get stamps for each passport
+          const allStamps: StampDTO[] = []
+          for (const passport of passports) {
+            if (passport?.id) {
+              const stampsRes = await fetch(`${API_BASE}/stamps/passport/${passport.id}`, {
+                credentials: 'include'
+              })
+              
+              if (stampsRes.ok) {
+                const stampsData: StampDTO[] = await stampsRes.json()
+                allStamps.push(...stampsData)
+              }
+            }
+          }
+          
+          console.log('✅ Total stamps collected:', allStamps.length)
+          setStamps(allStamps)
+        } else if (passportRes.status === 404) {
+          console.warn("⚠️ No passport found for member")
+          setStamps([])
+        } else {
+          console.error("❌ Failed to fetch passport:", passportRes.status)
+          setStamps([])
+        }
+      } catch (err) {
+        console.error("❌ Error fetching stamps:", err)
+        setStamps([])
+      }
+
+      // Fetch events for the user's organization
+      if (userData.organization?.id) {
+        console.log(`🔄 Fetching events for organization ${userData.organization.id}...`)
+        const eventsRes = await fetch(`${API_BASE}/events/organization/${userData.organization.id}`, {
+          credentials: 'include'
+        })
+        
+        if (eventsRes.ok) {
+          const eventsData: EventData[] = await eventsRes.json()
+          console.log('✅ Events loaded:', eventsData.length)
+          setEvents(eventsData)
+        } else {
+          console.error("❌ Failed to fetch events:", eventsRes.status)
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching dashboard data:", err)
+    } finally {
+      if (showLoader) {
+        setRefreshing(false)
+      }
+    }
+  }
+
+  // ------------------------- INITIAL DATA FETCH -------------------------
+  useEffect(() => {
     fetchData()
   }, [authUser])
+
+  // ------------------------- AUTO REFRESH (every 30 seconds) -------------------------
+  useEffect(() => {
+    if (!autoRefresh || !authUser) return
+
+    const intervalId = setInterval(() => {
+      console.log('🔄 Auto-refreshing member data...')
+      fetchData(false)
+    }, 30000) // 30 seconds
+
+    return () => clearInterval(intervalId)
+  }, [autoRefresh, authUser])
+
+  // Manual refresh handler
+  const handleManualRefresh = () => {
+    fetchData(true)
+  }
 
   if (!user) {
     return (
@@ -392,6 +385,30 @@ export default function MemberDashboard() {
           </div>
 
           <div className="flex items-center gap-4">
+            {/* Auto-refresh toggle */}
+            <button
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-colors ${
+                autoRefresh 
+                  ? "bg-green-500/20 text-green-300 border border-green-500/30" 
+                  : "bg-slate-700 text-slate-300 border border-slate-600"
+              }`}
+              title={autoRefresh ? "Auto-refresh enabled (every 30s)" : "Auto-refresh disabled"}
+            >
+              <div className={`w-2 h-2 rounded-full ${autoRefresh ? "bg-green-400 animate-pulse" : "bg-slate-400"}`} />
+              Auto
+            </button>
+
+            {/* Manual refresh button */}
+            <button
+              onClick={handleManualRefresh}
+              disabled={refreshing}
+              className="p-2 hover:bg-purple-500/20 rounded-lg transition-colors text-white disabled:opacity-50"
+              title="Refresh data"
+            >
+              <RefreshCw className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} />
+            </button>
+
             <div className="text-right">
               <p className="text-sm font-medium text-white">{user.firstName} {user.lastName}</p>
               <p className="text-xs text-purple-300">{user.role}</p>
