@@ -51,18 +51,18 @@ export default function AdminPage() {
   const [users, setUsers] = useState<AuthUser[]>([])
   const [events, setEvents] = useState<Event[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
-  const [loading, setLoading] = useState(true)
+  const [initialLoading, setInitialLoading] = useState(true)
   const [pageLoading, setPageLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [activeTab, setActiveTab] = useState<"overview" | "members" | "scanners" | "admins" | "events">("overview")
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; type: "user" | "event"; id: number; name: string } | null>(null)
-  const [notification, setNotification] = useState<{ message: string; type: "success" | "error" } | null>(null)
+  const [notification, setNotification] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null)
   const [autoRefresh, setAutoRefresh] = useState(true)
 
   // Show notification helper
-  const showNotification = (message: string, type: "success" | "error") => {
+  const showNotification = (message: string, type: "success" | "error" | "info") => {
     setNotification({ message, type })
-    setTimeout(() => setNotification(null), 3000)
+    setTimeout(() => setNotification(null), 4000)
   }
 
   // Get organizationId safely
@@ -133,7 +133,7 @@ export default function AdminPage() {
         showNotification("Failed to refresh data", "error")
       }
     } finally {
-      setLoading(false)
+      setInitialLoading(false)
       setRefreshing(false)
     }
   }
@@ -261,10 +261,20 @@ export default function AdminPage() {
   const admins = useMemo(() => users.filter(u => u.role === "ADMIN").map(u => convertAuthUserToUser(u, tempOrg)), [users, tempOrg])
 
   // ------------------------- EARLY RETURN -------------------------
-  if (!authUser) {
+  if (!authUser || initialLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
+        <div className="text-center">
+          <div className="relative w-24 h-24 mx-auto mb-6">
+            <div className="absolute inset-0 rounded-full border-4 border-purple-500/20"></div>
+            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-purple-500 animate-spin"></div>
+            <div className="absolute inset-3 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center">
+              <Zap className="w-10 h-10 text-white animate-pulse" />
+            </div>
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-2">Loading Admin Panel...</h2>
+          <p className="text-purple-300">Setting up your dashboard</p>
+        </div>
       </div>
     )
   }
@@ -282,13 +292,17 @@ export default function AdminPage() {
             className={`flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl backdrop-blur-sm border-2 min-w-[300px] ${
               notification.type === "success"
                 ? "bg-green-500/90 border-green-400 text-white"
-                : "bg-red-500/90 border-red-400 text-white"
+                : notification.type === "error"
+                ? "bg-red-500/90 border-red-400 text-white"
+                : "bg-blue-500/90 border-blue-400 text-white"
             }`}
           >
             {notification.type === "success" ? (
               <CheckCircle className="w-5 h-5" />
-            ) : (
+            ) : notification.type === "error" ? (
               <XCircle className="w-5 h-5" />
+            ) : (
+              <RefreshCw className="w-5 h-5 animate-spin" />
             )}
             <p className="flex-1 font-medium">{notification.message}</p>
           </div>
@@ -419,27 +433,21 @@ export default function AdminPage() {
 
             <section className="bg-slate-800/50 rounded-xl border border-purple-500/20 p-6 backdrop-blur-sm mt-6">
               <h2 className="text-xl text-white font-semibold mb-3">Activity Logs</h2>
-              {loading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : (
-                <ul className="text-purple-200 text-sm space-y-1 max-h-48 overflow-y-auto">
-                  {auditLogs.length === 0 ? (
-                    <li>No logs yet</li>
-                  ) : (
-                    auditLogs.slice(0, 10).map((log) => (
-                      <li key={log.id}>
-                        • {log.actionCategory} - {log.actionName} on {log.entityName}
-                        {log.actorUser && ` by ${log.actorUser.firstName} ${log.actorUser.lastName}`}
-                        <span className="text-xs text-purple-300 ml-2">
-                          {new Date(log.occurredAt).toLocaleString()}
-                        </span>
-                      </li>
-                    ))
-                  )}
-                </ul>
-              )}
+              <ul className="text-purple-200 text-sm space-y-1 max-h-48 overflow-y-auto">
+                {auditLogs.length === 0 ? (
+                  <li>No logs yet</li>
+                ) : (
+                  auditLogs.slice(0, 10).map((log) => (
+                    <li key={log.id}>
+                      • {log.actionCategory} - {log.actionName} on {log.entityName}
+                      {log.actorUser && ` by ${log.actorUser.firstName} ${log.actorUser.lastName}`}
+                      <span className="text-xs text-purple-300 ml-2">
+                        {new Date(log.occurredAt).toLocaleString()}
+                      </span>
+                    </li>
+                  ))
+                )}
+              </ul>
             </section>
           </>
         )}

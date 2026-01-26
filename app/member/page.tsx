@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "next/navigation"
-import { Zap, QrCode, Award, Check, Calendar, Star, TrendingUp, LogOut, RefreshCw } from "lucide-react"
+import { Zap, QrCode, Award, Check, Calendar, Star, TrendingUp, LogOut, RefreshCw, X } from "lucide-react"
 import type { User, Stamp as StampType } from "@/lib/types"
 
 /* ------------------------- API BASE ------------------------- */
@@ -227,6 +227,14 @@ export default function MemberDashboard() {
   const [flipped, setFlipped] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(true)
+  const [initialLoading, setInitialLoading] = useState(true)
+  const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
+
+  // Show notification helper
+  const showNotification = (type: 'success' | 'error' | 'info', message: string, duration = 4000) => {
+    setNotification({ type, message })
+    setTimeout(() => setNotification(null), duration)
+  }
 
   // ------------------------- DATA FETCH FUNCTION -------------------------
   const fetchData = async (showLoader = false) => {
@@ -248,6 +256,8 @@ export default function MemberDashboard() {
       
       if (!userRes.ok) {
         console.error("❌ Failed to fetch user data:", userRes.status, userRes.statusText)
+        showNotification('error', 'Failed to load user data')
+        setInitialLoading(false)
         return
       }
       
@@ -292,6 +302,7 @@ export default function MemberDashboard() {
         }
       } catch (err) {
         console.error("❌ Error fetching stamps:", err)
+        showNotification('error', 'Error loading stamps')
         setStamps([])
       }
 
@@ -308,11 +319,14 @@ export default function MemberDashboard() {
           setEvents(eventsData)
         } else {
           console.error("❌ Failed to fetch events:", eventsRes.status)
+          showNotification('error', 'Failed to load events')
         }
       }
     } catch (err) {
       console.error("Error fetching dashboard data:", err)
+      showNotification('error', 'Error loading dashboard data')
     } finally {
+      setInitialLoading(false)
       if (showLoader) {
         setRefreshing(false)
       }
@@ -338,17 +352,23 @@ export default function MemberDashboard() {
 
   // Manual refresh handler
   const handleManualRefresh = () => {
+    showNotification('info', 'Refreshing data...')
     fetchData(true)
   }
 
-  if (!user) {
+  if (!user || initialLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center mx-auto mb-4 animate-pulse">
-            <Zap className="w-8 h-8 text-white" />
+          <div className="relative w-24 h-24 mx-auto mb-6">
+            <div className="absolute inset-0 rounded-full border-4 border-purple-500/20"></div>
+            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-purple-500 animate-spin"></div>
+            <div className="absolute inset-3 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center">
+              <Zap className="w-10 h-10 text-white animate-pulse" />
+            </div>
           </div>
-          <p className="text-white text-lg font-medium">Loading your dashboard...</p>
+          <h2 className="text-2xl font-bold text-white mb-2">Loading Dashboard...</h2>
+          <p className="text-purple-300">Preparing your membership passport</p>
         </div>
       </div>
     )
@@ -372,6 +392,40 @@ export default function MemberDashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+      {/* Toast Notification */}
+      {notification && (
+        <div className="fixed top-4 right-4 z-[70] animate-in slide-in-from-top-2 duration-300">
+          <div className={`rounded-lg shadow-2xl p-4 min-w-[300px] border-2 ${
+            notification.type === 'success' 
+              ? 'bg-green-500/90 border-green-400 text-white' 
+              : notification.type === 'error'
+              ? 'bg-red-500/90 border-red-400 text-white'
+              : 'bg-blue-500/90 border-blue-400 text-white'
+          } backdrop-blur-sm`}>
+            <div className="flex items-center gap-3">
+              <div className="flex-shrink-0">
+                {notification.type === 'success' && (
+                  <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+                    <Check className="w-4 h-4" />
+                  </div>
+                )}
+                {notification.type === 'error' && (
+                  <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+                    <X className="w-4 h-4" />
+                  </div>
+                )}
+                {notification.type === 'info' && (
+                  <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  </div>
+                )}
+              </div>
+              <p className="font-medium">{notification.message}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* NAVBAR */}
       <header className="border-b border-purple-500/20 bg-slate-900/80 backdrop-blur-lg sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">

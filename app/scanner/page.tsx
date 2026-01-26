@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { QRScannerInterface } from "@/components/qr-scanner-interface"
 import { ScanHistoryTable } from "@/components/scan-history-table"
-import { BarChart3, Clock, Users, TrendingUp, LogOut, Zap, QrCode, Calendar, RefreshCw } from "lucide-react"
+import { BarChart3, Clock, Users, TrendingUp, LogOut, Zap, QrCode, Calendar, RefreshCw, Check, X } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import type { User, Event } from "@/lib/types"
@@ -63,6 +63,17 @@ export default function ScannerPage() {
   const [scannerId, setScannerId] = useState<number | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(true)
+  const [processingStamp, setProcessingStamp] = useState(false)
+  const [processingMessage, setProcessingMessage] = useState("")
+  const [loadingEvents, setLoadingEvents] = useState(true)
+  const [loadingScans, setLoadingScans] = useState(false)
+  const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
+
+  // Show notification helper
+  const showNotification = (type: 'success' | 'error' | 'info', message: string, duration = 4000) => {
+    setNotification({ type, message })
+    setTimeout(() => setNotification(null), duration)
+  }
 
   /* ------------------------- DATA FETCH FUNCTION ------------------------- */
   const fetchScanHistory = async (showLoader = false) => {
@@ -70,6 +81,8 @@ export default function ScannerPage() {
 
     if (showLoader) {
       setRefreshing(true)
+    } else {
+      setLoadingScans(true)
     }
 
     try {
@@ -99,12 +112,17 @@ export default function ScannerPage() {
         }))
         
         setScans(eventScans)
+      } else {
+        showNotification('error', 'Failed to load scan history')
       }
     } catch (err) {
       console.error("❌ Error fetching scan history:", err)
+      showNotification('error', 'Error loading scan history')
     } finally {
       if (showLoader) {
         setRefreshing(false)
+      } else {
+        setLoadingScans(false)
       }
     }
   }
@@ -112,6 +130,7 @@ export default function ScannerPage() {
   /* Fetch all events for the scanner */
   useEffect(() => {
     const fetchEvents = async () => {
+      setLoadingEvents(true)
       try {
         // Get current user to fetch their organization events
         const userRes = await fetch(`${API_BASE}/users/me`, {
@@ -120,6 +139,8 @@ export default function ScannerPage() {
         
         if (!userRes.ok) {
           console.error("Failed to fetch user data")
+          showNotification('error', 'Failed to load user data')
+          setLoadingEvents(false)
           return
         }
         
@@ -139,13 +160,24 @@ export default function ScannerPage() {
             const data: Event[] = await eventsRes.json()
             console.log("Events loaded:", data)
             setEvents(data)
-            if (data.length > 0) setSelectedEventId(data[0].id)
+            if (data.length > 0) {
+              setSelectedEventId(data[0].id)
+              showNotification('success', `Loaded ${data.length} event(s)`)
+            } else {
+              showNotification('info', 'No events available')
+            }
           } else {
             console.error("Failed to fetch events:", eventsRes.status)
+            showNotification('error', 'Failed to load events')
           }
+        } else {
+          showNotification('error', 'No organization found')
         }
       } catch (err) {
         console.error("Error fetching events:", err)
+        showNotification('error', 'Error loading events')
+      } finally {
+        setLoadingEvents(false)
       }
     }
     fetchEvents()
@@ -156,6 +188,7 @@ export default function ScannerPage() {
     if (!selectedEventId || !scannerId) return
 
     const fetchScans = async () => {
+      setLoadingScans(true)
       try {
         console.log(`🔄 Fetching stamps by scanner ${scannerId}...`)
         
@@ -176,10 +209,9 @@ export default function ScannerPage() {
           const currentEventName = events.find(e => e.id === selectedEventId)?.eventName || `Event ${selectedEventId}`
           
           // Convert StampDTOs to ScanRecords for UI display
-          // Note: StampDTO doesn't include member/event details, so we show IDs
           const eventScans: ScanRecord[] = eventStampDTOs.map((stamp) => ({
             id: stamp.id.toString(),
-            memberName: `Passport ${stamp.passportId}`, // We only have passport ID from DTO
+            memberName: `Passport ${stamp.passportId}`,
             memberId: stamp.passportId.toString(),
             timestamp: new Date(stamp.stampedAt),
             eventId: stamp.eventId.toString(),
@@ -191,9 +223,13 @@ export default function ScannerPage() {
           setScans(eventScans)
         } else {
           console.error('❌ Failed to fetch stamps:', stampsRes.status)
+          showNotification('error', 'Failed to load scan history')
         }
       } catch (err) {
         console.error("❌ Error fetching scan history:", err)
+        showNotification('error', 'Error loading scan history')
+      } finally {
+        setLoadingScans(false)
       }
     }
 
@@ -214,6 +250,7 @@ export default function ScannerPage() {
 
   // Manual refresh handler
   const handleManualRefresh = () => {
+    showNotification('info', 'Refreshing scan history...')
     fetchScanHistory(true)
   }
 
@@ -247,9 +284,11 @@ export default function ScannerPage() {
     }
 
     setShowConfirmDialog(false)
+    setProcessingStamp(true)
 
     try {
       // Step 1: Fetch passport ID using member ID
+      setProcessingMessage("Looking up member passport...")
       console.log(`🔄 Step 1: Fetching passport for member ${pendingScan.memberId}...`)
       const passportRes = await fetch(`${API_BASE}/passports/member/${pendingScan.memberId}`, {
         credentials: 'include'
@@ -257,7 +296,8 @@ export default function ScannerPage() {
 
       if (!passportRes.ok) {
         console.error('❌ Failed to fetch passport:', passportRes.status)
-        alert(`Passport not found for Member ${pendingScan.memberId}`)
+        setProcessingStamp(false)
+        alert(`❌ Passport Not Found\n\nMember ID: ${pendingScan.memberId}\n\nThis member does not have a valid passport.`)
         setPendingScan(null)
         return
       }
@@ -267,7 +307,8 @@ export default function ScannerPage() {
       
       if (!Array.isArray(passports) || passports.length === 0) {
         console.error('❌ No passport found for member')
-        alert(`Passport not found for Member ${pendingScan.memberId}`)
+        setProcessingStamp(false)
+        alert(`❌ Passport Not Found\n\nMember ID: ${pendingScan.memberId}\n\nThis member does not have a valid passport.`)
         setPendingScan(null)
         return
       }
@@ -275,23 +316,9 @@ export default function ScannerPage() {
       const passportId = passports[0].id
       console.log('📋 Using Passport ID:', passportId)
 
-      // Step 2: Check duplicate
-      console.log(`🔄 Step 2: Checking for duplicate (passport: ${passportId}, event: ${currentEvent.id})...`)
-      const existingStampRes = await fetch(
-        `${API_BASE}/stamps/passport/${passportId}/event/${currentEvent.id}`,
-        { credentials: 'include' }
-      )
-
-      if (existingStampRes.ok) {
-        console.warn('⚠️ Already checked in')
-        alert(`Member ${pendingScan.memberId} is already checked in for this event!`)
-        setPendingScan(null)
-        return
-      }
-      console.log('✅ No duplicate found')
-
-      // Step 3: Create stamp with simplified payload
-      console.log('🔄 Step 3: Creating stamp...')
+      // Step 2: Create stamp directly - backend will handle duplicate check
+      setProcessingMessage("Creating stamp & checking for duplicates...")
+      console.log('🔄 Step 2: Creating stamp...')
       const payload = {
         passportId,
         eventId: currentEvent.id,
@@ -311,7 +338,20 @@ export default function ScannerPage() {
       if (!createRes.ok) {
         const errorText = await createRes.text()
         console.error('❌ Failed to create stamp:', createRes.status, errorText)
-        alert(`Failed to create stamp: ${errorText || 'Unknown error'}`)
+        
+        setProcessingStamp(false)
+        
+        // Check if it's a duplicate error
+        if (createRes.status === 400 || createRes.status === 409 || 
+            errorText.toLowerCase().includes('duplicate') || 
+            errorText.toLowerCase().includes('already') ||
+            errorText.toLowerCase().includes('exists')) {
+          console.warn('⚠️ Duplicate stamp detected')
+          alert(`⚠️ Already Checked In!\n\nMember ID: ${pendingScan.memberId}\nPassport ID: ${passportId}\n\nThis member is already checked in for:\n"${currentEvent.eventName}"`)
+        } else {
+          alert(`❌ Failed to Create Stamp\n\n${errorText || 'Unknown error occurred'}`)
+        }
+        
         setPendingScan(null)
         return
       }
@@ -319,7 +359,8 @@ export default function ScannerPage() {
       const createdStamp = await createRes.json()
       console.log('✅ Stamp created successfully!', createdStamp)
 
-      // Step 4: Update UI with StampDTO response
+      // Step 3: Update UI with StampDTO response
+      setProcessingMessage("Updating records...")
       const stampDTO: StampDTO = createdStamp
       const newScan: ScanRecord = {
         id: stampDTO.id.toString(),
@@ -332,12 +373,19 @@ export default function ScannerPage() {
       }
 
       setScans([newScan, ...scans])
+      
+      // Refresh scan history to get latest data
+      await fetchScanHistory(false)
+      
+      setProcessingStamp(false)
       setPendingScan(null)
-      alert(`✅ Check-in successful!\n\nMember ID: ${pendingScan.memberId}\nPassport ID: ${passportId}\nEvent: ${currentEvent.eventName}`)
+      
+      showNotification('success', `✅ Check-in successful for Member ${pendingScan.memberId}!`)
 
     } catch (err) {
       console.error("❌ Error processing scan:", err)
-      alert('Error processing scan. Please try again.')
+      setProcessingStamp(false)
+      showNotification('error', 'Error processing scan. Please try again.')
       setPendingScan(null)
     }
   }
@@ -369,8 +417,61 @@ export default function ScannerPage() {
   const scanRate = scans.length > 0 ? (scans.length / 5).toFixed(1) : "0" // placeholder
   const attendanceRate = Math.round((uniqueMembers / 50) * 100) // assuming 50 members per event
 
+  // Show loading screen during initial load
+  if (loadingEvents) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="relative w-24 h-24 mx-auto mb-6">
+            <div className="absolute inset-0 rounded-full border-4 border-purple-500/20"></div>
+            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-purple-500 animate-spin"></div>
+            <div className="absolute inset-3 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center">
+              <Zap className="w-10 h-10 text-white animate-pulse" />
+            </div>
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-2">Loading Scanner...</h2>
+          <p className="text-purple-300">Setting up your event check-in system</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+      {/* Toast Notification */}
+      {notification && (
+        <div className="fixed top-4 right-4 z-[70] animate-in slide-in-from-top-2 duration-300">
+          <div className={`rounded-lg shadow-2xl p-4 min-w-[300px] border-2 ${
+            notification.type === 'success' 
+              ? 'bg-green-500/90 border-green-400 text-white' 
+              : notification.type === 'error'
+              ? 'bg-red-500/90 border-red-400 text-white'
+              : 'bg-blue-500/90 border-blue-400 text-white'
+          } backdrop-blur-sm`}>
+            <div className="flex items-center gap-3">
+              <div className="flex-shrink-0">
+                {notification.type === 'success' && (
+                  <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+                    <Check className="w-4 h-4" />
+                  </div>
+                )}
+                {notification.type === 'error' && (
+                  <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+                    <X className="w-4 h-4" />
+                  </div>
+                )}
+                {notification.type === 'info' && (
+                  <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  </div>
+                )}
+              </div>
+              <p className="font-medium">{notification.message}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* NAVBAR */}
       <header className="border-b border-purple-500/20 bg-slate-900/80 backdrop-blur-lg sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -507,11 +608,27 @@ export default function ScannerPage() {
                   <h2 className="font-semibold text-white text-lg">Scan History</h2>
                 </div>
                 <span className="text-xs text-purple-300 bg-purple-500/20 px-3 py-1 rounded-full">
-                  {scans.length} scans
+                  {loadingScans ? (
+                    <span className="flex items-center gap-1">
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      Loading...
+                    </span>
+                  ) : (
+                    `${scans.length} scans`
+                  )}
                 </span>
               </div>
 
-              <ScanHistoryTable scans={scans} />
+              {loadingScans ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <div className="w-12 h-12 border-4 border-purple-500/20 border-t-purple-500 rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-purple-300 text-sm">Loading scan history...</p>
+                  </div>
+                </div>
+              ) : (
+                <ScanHistoryTable scans={scans} />
+              )}
             </div>
           </div>
         </section>
@@ -565,6 +682,38 @@ export default function ScannerPage() {
               >
                 Confirm Check-In
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Processing/Loading Modal */}
+      {processingStamp && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+          <div className="bg-slate-800 rounded-2xl border-2 border-purple-500/50 p-8 max-w-md w-full shadow-2xl">
+            <div className="text-center">
+              {/* Animated Spinner */}
+              <div className="relative w-20 h-20 mx-auto mb-6">
+                <div className="absolute inset-0 rounded-full border-4 border-purple-500/20"></div>
+                <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-purple-500 animate-spin"></div>
+                <div className="absolute inset-2 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center">
+                  <QrCode className="w-8 h-8 text-white animate-pulse" />
+                </div>
+              </div>
+
+              {/* Processing Message */}
+              <h3 className="text-xl font-bold text-white mb-2">Processing Check-In</h3>
+              <p className="text-purple-300 text-sm mb-4">{processingMessage}</p>
+
+              {/* Progress Indicator */}
+              <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full animate-pulse"></div>
+              </div>
+
+              {/* Info Text */}
+              <p className="text-xs text-purple-400 mt-4">
+                Please wait while we verify and create your stamp...
+              </p>
             </div>
           </div>
         </div>
